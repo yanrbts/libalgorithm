@@ -302,3 +302,118 @@ void *zcalloc_usable(size_t size, size_t *usable) {
     if (usable) *usable = usable_size;
     return ptr;
 }
+
+/* Try reallocating memory, and return NULL if failed.
+ * '*usable' is set to the usable size if non NULL. */
+static inline void *ztryrealloc_usable_internal(void *ptr, size_t size, size_t *usable) {
+#ifndef HAVE_MALLOC_SIZE
+    void *realptr;
+#endif
+    size_t oldsize;
+    void *newptr;
+
+    /* not allocating anything, just redirect to free. */
+    if (size == 0 && ptr != NULL) {
+        zfree(ptr);
+        if (usable) *usable = 0;
+        return NULL;
+    }
+    /* Not freeing anything, just redirect to malloc. */
+    if (ptr == NULL)
+        return ztrymalloc_usable(size, usable);
+
+    /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
+    if (size >= SIZE_MAX/2) {
+        zfree(ptr);
+        if (usable) *usable = 0;
+        return NULL;
+    }
+
+#ifdef HAVE_MALLOC_SIZE
+    oldsize = zmalloc_size(ptr);
+    newptr = realloc(ptr,size);
+    if (newptr == NULL) {
+        if (usable) *usable = 0;
+        return NULL;
+    }
+
+    update_zmalloc_stat_free(oldsize);
+    size = zmalloc_size(newptr);
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return newptr;
+#else
+    realptr = (char*)ptr-PREFIX_SIZE;
+    oldsize = *((size_t*)realptr);
+    newptr = realloc(realptr,size+PREFIX_SIZE);
+    if (newptr == NULL) {
+        if (usable) *usable = 0;
+        return NULL;
+    }
+
+    *((size_t*)newptr) = size;
+    update_zmalloc_stat_free(oldsize);
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return (char*)newptr+PREFIX_SIZE;
+#endif
+}
+
+void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable) {
+    size_t usable_size = 0;
+    ptr = ztryrealloc_usable_internal(ptr, size, &usable_size);
+#ifdef HAVE_MALLOC_SIZE
+    ptr = extend_to_usable(ptr, usable_size);
+#endif
+    if (usable) *usable = usable_size;
+    return ptr;
+}
+
+/* Reallocate memory and zero it or panic */
+void *zrealloc(void *ptr, size_t size) {
+    ptr = ztryrealloc_usable_internal(ptr, size, NULL);
+    if (!ptr && size != 0) zmalloc_oom_handler(size);
+    return ptr;
+}
+
+/* Try Reallocating memory, and return NULL if failed. */
+void *ztryrealloc(void *ptr, size_t size) {
+    ptr = ztryrealloc_usable_internal(ptr, size, NULL);
+    return ptr;
+}
+
+/* Reallocate memory or panic.
+ * '*usable' is set to the usable size if non NULL. */
+void *zrealloc_usable(void *ptr, size_t size, size_t *usable) {
+    size_t usable_size = 0;
+    ptr = ztryrealloc_usable(ptr, size, &usable_size);
+    if (!ptr && size != 0) zmalloc_oom_handler(size);
+#ifdef HAVE_MALLOC_SIZE
+    ptr = extend_to_usable(ptr, usable_size);
+#endif
+    if (usable) *usable = usable_size;
+    return ptr;
+}
+
+/* Provide zmalloc_size() for systems where this function is not provided by
+ * malloc itself, given that in that case we store a header with this
+ * information as the first bytes of every allocation. */
+#ifndef HAVE_MALLOC_SIZE
+size_t zmalloc_size(void *ptr) {
+    void *realptr = (char*)ptr-PREFIX_SIZE;
+    size_t size = *((size_t*)realptr);
+    return size+PREFIX_SIZE;
+}
+size_t zmalloc_usable_size(void *ptr) {
+    return zmalloc_size(ptr)-PREFIX_SIZE;
+}
+#endif
+
+void zfree(void *ptr) {
+#ifndef HAVE_MALLOC_SIZE
+    void *realptr;
+    size_t oldsize
+#endif
+
+    if (ptr == NULL) return;
+}
