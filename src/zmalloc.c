@@ -416,4 +416,76 @@ void zfree(void *ptr) {
 #endif
 
     if (ptr == NULL) return;
+#ifdef HAVE_MALLOC_SIZE
+    update_zmalloc_stat_free(zmalloc_size(ptr));
+    free(ptr);
+#else
+    realptr = (char*)ptr-PREFIX_SIZE;
+    oldsize = *((size_t*)realptr);
+    update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
+    free(realptr);
+#endif
+}
+
+/* Similar to zfree, '*usable' is set to the usable size being freed. */
+void zfree_usable(void *ptr, size_t *usable) {
+#ifndef HAVE_MALLOC_SIZE
+    void *realptr;
+    size_t oldsize;
+#endif
+
+    if (ptr == NULL) return;
+#ifdef HAVE_MALLOC_SIZE
+    update_zmalloc_stat_free(*usable = zmalloc_size(ptr));
+    free(ptr);
+#else
+    realptr = (char*)ptr-PREFIX_SIZE;
+    *usable = oldsize = *((size_t*)realptr);
+    update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
+    free(realptr);
+#endif
+}
+
+char *zstrdup(const char *s) {
+    size_t l = strlen(s)+1;
+    char *p = zmalloc(l);
+
+    memcpy(p, s, l);
+    return p;
+}
+
+size_t zmalloc_used_memory(void) {
+    size_t um;
+    atomicGet(used_memory,um);
+    return um;
+}
+
+void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
+    zmalloc_oom_handler = oom_handler;
+}
+
+/* Use 'MADV_DONTNEED' to release memory to operating system quickly.
+ * We do that in a fork child process to avoid CoW when the parent modifies
+ * these shared pages. */
+void zmadvise_dontneed(void *ptr) {
+#if defined(USE_JEMALLOC) && defined(__linux__)
+    static size_t page_size = 0;
+    /*Size of a page in bytes.  Must not be less than 1.*/
+    if (page_size == 0) page_size = sysconf(_SC_PAGESIZE);
+    size_t page_size_mask = page_size - 1;
+
+    size_t real_size = zmalloc_size(ptr);
+    if (real_size < page_size) return;
+
+    /* We need to align the pointer upwards according to page size, because
+     * the memory address is increased upwards and we only can free memory
+     * based on page. */
+    char *aligned_ptr = (char*)(((size_t)ptr+page_size_mask) & ~page_size_mask);
+    real_size -= (aligned_ptr-(char*)ptr);
+    if (real_size >= page_size) {
+        madvise((void *)aligned_ptr, real_size&~page_size_mask, MADV_DONTNEED);
+    }
+#else
+    (void)(ptr);
+#endif
 }
