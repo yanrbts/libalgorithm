@@ -47,7 +47,7 @@ zskiplistNode *zslCreateNode(int level, double score, void *ele) {
     return zn;
 }
 
-zskiplist *zslCreate(void) {
+zskiplist *zslCreate(memcmp mp) {
     int j;
     zskiplist *zsl;
 
@@ -61,6 +61,7 @@ zskiplist *zslCreate(void) {
     }
     zsl->header->backward = NULL;
     zsl->tail = NULL;
+    zsl->mcmp = mp;
     return zsl;
 }
 

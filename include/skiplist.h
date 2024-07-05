@@ -28,6 +28,8 @@
 #ifndef __SKIPLIST_H__
 #define __SKIPLIST_H__
 
+typedef int (*memcmp)(void *v1, void *v2);
+
 typedef struct zskiplistNode {
     void *ele;
     double score;
@@ -42,10 +44,10 @@ typedef struct zskiplist {
     struct zskiplistNode *header, *tail;
     unsigned long length;
     int level;
-    int (*mcmp)(void *v1, void *v2);
+    memcmp mcmp;
 } zskiplist;
 
-zskiplist *zslCreate(void);
+zskiplist *zslCreate(memcmp mp);
 void zslFree(zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, void *ele);
 int zslDelete(zskiplist *zsl, double score, void *ele, zskiplistNode **node);
