@@ -215,3 +215,58 @@ int zslDelete(zskiplist *zsl, double score, void *ele, zskiplistNode **node) {
     }
     return 0; /* not found */
 }
+
+/* Update the score of an element inside the sorted set skiplist.
+ * Note that the element must exist and must match 'score'.
+ * This function does not update the score in the hash table side, the
+ * caller should take care of it.
+ *
+ * Note that this function attempts to just update the node, in case after
+ * the score update, the node would be exactly at the same position.
+ * Otherwise the skiplist is modified by removing and re-adding a new
+ * element, which is more costly.
+ *
+ * The function returns the updated element skiplist node pointer. */
+zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, void *ele, double newscore) {
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+    int i;
+
+    /* We need to seek to element to update to start: this is useful anyway,
+     * we'll have to update or remove it. */
+    x = zsl->header;
+    for (i = zsl->level-1; i >= 0; i--) {
+        while (x->level[i].forward &&
+                (x->level[i].forward->score < curscore ||
+                    (x->level[i].forward->score == curscore &&
+                     zsl->mcmp(x->level[i].forward->ele, ele) < 0)))
+        {
+            x = x->level[i].forward;
+        }
+        update[i] = x;
+    }
+
+    /* Jump to our element: note that this function assumes that the
+     * element with the matching score exists. */
+    x = x->level[0].forward;
+    assert(x && curscore == x->score && zsl->mcmp(x->ele, ele) == 0);
+
+    /* If the node, after the score update, would be still exactly
+     * at the same position, we can just update the score without
+     * actually removing and re-inserting the element in the skiplist. */
+    if ((x->backward == NULL || x->backward->score < newscore) &&
+        (x->level[0].forward == NULL || x->level[0].forward->score > newscore))
+    {
+        x->score = newscore;
+        return x;
+    }
+
+    /* No way to reuse the old node: we need to remove and insert a new
+     * one at a different place. */
+    zslDeleteNode(zsl, x, update);
+    zskiplistNode *newnode = zslInsert(zsl, newscore, x->ele);
+    /* We reused the old node x->ele SDS string, free the node now
+     * since zslInsert created a new one. */
+    x->ele = NULL;
+    zslFreeNode(x);
+    return newnode;
+}
