@@ -47,9 +47,18 @@ typedef struct zskiplist {
     memcmp mcmp;
 } zskiplist;
 
+/* Struct to hold an inclusive/exclusive range spec by score comparison. */
+typedef struct {
+    double min, max;
+    int minex, maxex;
+} zrangespec;
+
 zskiplist *zslCreate(memcmp mp);
 void zslFree(zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, void *ele);
 int zslDelete(zskiplist *zsl, double score, void *ele, zskiplistNode **node);
+zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n);
+int zslValueGteMin(double value, zrangespec *spec);
+int zslValueLteMax(double value, zrangespec *spec);
 
 #endif
