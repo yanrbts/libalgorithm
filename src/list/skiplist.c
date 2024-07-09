@@ -353,7 +353,7 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
             }
         }
         /* Check if zsl is long enough. */
-        if ((unsigned long)(edge_rank+n) >= zsl->length) return NULL;
+        if ((unsigned long)(edge_rank + n) >= zsl->length) return NULL;
         if (n < ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
             /* rank+1 is the first element in range, so we need n+1 steps to reach target. */
@@ -394,4 +394,92 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
         if (x && !zslValueGteMin(x->score, range)) return NULL;
     }
     return x;
+}
+
+/* Delete all the elements with score between min and max from the skiplist.
+ * Both min and max can be inclusive or exclusive (see range->minex and
+ * range->maxex). When inclusive a score >= min && score <= max is deleted.
+ * Note that this function takes the reference to the hash table view of the
+ * sorted set, in order to remove the elements from the hash table too. */
+unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range) {
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+    unsigned long removed = 0;
+    int i;
+
+    x = zsl->header;
+    for (i = zsl->level-1; i >= 0; i--) {
+        while (x->level[i].forward &&
+            !zslValueGteMin(x->level[i].forward->score, range))
+            x = x->level[i].forward;
+        update[i] = x;
+    }
+
+    /* Current node is the last with score < or <= min. */
+    x = x->level[0].forward;
+
+    /* Delete nodes while in range. */
+    while (x && zslValueLteMax(x->score, range)) {
+        zskiplistNode *next = x->level[0].forward;
+        zslDeleteNode(zsl, x, update);
+        zslFreeNode(x); /* Here is where x->ele is actually released. */
+        removed++;
+        x = next;
+    }
+    return removed;
+}
+
+/* Delete all the elements with rank between start and end from the skiplist.
+ * Start and end are inclusive. Note that start and end need to be 1-based */
+unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned int end) {
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
+    unsigned long traversed = 0, removed = 0;
+    int i;
+
+    x = zsl->header;
+    for (i = zsl->level-1; i >= 0; i--) {
+        while (x->level[i].forward && (traversed + x->level[i].span) < start) {
+            traversed += x->level[i].span;
+            x = x->level[i].forward;
+        }
+        update[i] = x;
+    }
+
+    traversed++;
+    x = x->level[0].forward;
+    while (x && traversed <= end) {
+        zskiplistNode *next = x->level[0].forward;
+        zslDeleteNode(zsl, x, update);
+        zslFreeNode(x);
+        removed++;
+        traversed++;
+        x = next;
+    }
+    return removed;
+}
+
+/* Find the rank for an element by both score and key.
+ * Returns 0 when the element cannot be found, rank otherwise.
+ * Note that the rank is 1-based due to the span of zsl->header to the
+ * first element. */
+unsigned long zslGetRank(zskiplist *zsl, double score, void *ele) {
+    zskiplistNode *x;
+    unsigned long rank = 0;
+    int i;
+
+    x = zsl->header;
+    for (i = zsl->level-1; i >= 0; i--) {
+        while (x->level[i].forward &&
+            (x->level[i].forward->score < score ||
+            (x->level[i].forward->score == score &&
+             zsl->mcmp(x->level[i].forward->ele, ele) <= 0))) {
+            rank += x->level[i].span;
+            x = x->level[i].forward;
+        }
+
+        /* x might be equal to zsl->header, so test if obj is non-NULL */
+        if (x->ele && x->score == score && zsl->mcmp(x->ele,ele) == 0) {
+            return rank;
+        }
+    }
+    return 0;
 }

@@ -60,5 +60,6 @@ int zslDelete(zskiplist *zsl, double score, void *ele, zskiplistNode **node);
 zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n);
 int zslValueGteMin(double value, zrangespec *spec);
 int zslValueLteMax(double value, zrangespec *spec);
+unsigned long zslGetRank(zskiplist *zsl, double score, void *ele);
 
 #endif
