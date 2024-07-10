@@ -25,53 +25,24 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef __SKIPLIST_H__
-#define __SKIPLIST_H__
+#include <unity.h>
+#include "test_zsl.c"
 
-/* Directions for iterators */
-#define ZL_START_HEAD 0
-#define ZL_START_TAIL 1
+void setUp(void) {
 
-typedef int (*zslmemcmp)(const void *v1, const void *v2, size_t size);
+}
 
-typedef struct zskiplistNode {
-    void *ele;
-    double score;
-    struct zskiplistNode *backward;
-    struct zskiplistLevel {
-        struct zskiplistNode *forward;
-        unsigned long span;
-    } level[];
-} zskiplistNode;
+void tearDown(void) {
 
-typedef struct zskiplistIter {
-    struct zskiplistNode *next;
-    int direction;
-} zskiplistIter;
+}
 
-typedef struct zskiplist {
-    struct zskiplistNode *header, *tail;
-    unsigned long length;
-    int level;
-    zslmemcmp mcmp;
-} zskiplist;
-
-/* Struct to hold an inclusive/exclusive range spec by score comparison. */
-typedef struct {
-    double min, max;
-    int minex, maxex;
-} zrangespec;
-
-zskiplist *zslCreate(zslmemcmp mp);
-void zslFree(zskiplist *zsl);
-zskiplistNode *zslInsert(zskiplist *zsl, double score, void *ele, size_t size);
-int zslDelete(zskiplist *zsl, double score, void *ele, size_t size, zskiplistNode **node);
-zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n);
-int zslValueGteMin(double value, zrangespec *spec);
-int zslValueLteMax(double value, zrangespec *spec);
-unsigned long zslGetRank(zskiplist *zsl, double score, void *ele, size_t size);
-zskiplistIter *zslGetIterator(zskiplist *zsl, int direction);
-zskiplistNode *zslNext(zskiplistIter *iter);
-void zslReleaseIterator(zskiplistIter *iter);
-
-#endif
+int main(void) {
+    UNITY_BEGIN();
+    RUN_TEST(test_zslCreate);
+    RUN_TEST(test_zslInsert);
+    RUN_TEST(test_zslNthInRange);
+    RUN_TEST(test_zslGetRank);
+    RUN_TEST(test_zslDelete);
+    RUN_TEST(test_zslIterator);
+    return UNITY_END();
+}

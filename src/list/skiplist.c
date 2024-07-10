@@ -26,6 +26,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 #include <assert.h>
 #include <zmalloc.h>
@@ -47,7 +48,7 @@ zskiplistNode *zslCreateNode(int level, double score, void *ele) {
     return zn;
 }
 
-zskiplist *zslCreate(memcmp mp) {
+zskiplist *zslCreate(zslmemcmp mp) {
     int j;
     zskiplist *zsl;
 
@@ -61,7 +62,7 @@ zskiplist *zslCreate(memcmp mp) {
     }
     zsl->header->backward = NULL;
     zsl->tail = NULL;
-    zsl->mcmp = mp;
+    zsl->mcmp = mp ? mp : memcmp;
     return zsl;
 }
 
@@ -102,7 +103,7 @@ int zslRandomLevel(void) {
 /* Insert a new node in the skiplist. Assumes the element does not already
  * exist (up to the caller to enforce that). The skiplist takes ownership
  * of the passed SDS string 'ele'. */
-zskiplistNode *zslInsert(zskiplist *zsl, double score, void *ele) {
+zskiplistNode *zslInsert(zskiplist *zsl, double score, void *ele, size_t size) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     unsigned long rank[ZSKIPLIST_MAXLEVEL];
     int i, level;
@@ -116,7 +117,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, void *ele) {
         while (x->level[i].forward &&
                 (x->level[i].forward->score < score ||
                     (x->level[i].forward->score == score &&
-                    zsl->mcmp(x->level[i].forward->ele, ele) < 0)))
+                    zsl->mcmp(x->level[i].forward->ele, ele, size) < 0)))
         {
             rank[i] += x->level[i].span;
             x = x->level[i].forward;
@@ -188,7 +189,7 @@ void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **update) {
  * it is not freed (but just unlinked) and *node is set to the node pointer,
  * so that it is possible for the caller to reuse the node (including the
  * referenced SDS string at node->ele). */
-int zslDelete(zskiplist *zsl, double score, void *ele, zskiplistNode **node) {
+int zslDelete(zskiplist *zsl, double score, void *ele, size_t size, zskiplistNode **node) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     int i;
 
@@ -197,7 +198,7 @@ int zslDelete(zskiplist *zsl, double score, void *ele, zskiplistNode **node) {
         while (x->level[i].forward &&
                 (x->level[i].forward->score < score ||
                     (x->level[i].forward->score == score &&
-                     zsl->mcmp(x->level[i].forward->ele,ele) < 0)))
+                     zsl->mcmp(x->level[i].forward->ele, ele, size) < 0)))
         {
             x = x->level[i].forward;
         }
@@ -206,7 +207,7 @@ int zslDelete(zskiplist *zsl, double score, void *ele, zskiplistNode **node) {
     /* We may have multiple elements with the same score, what we need
      * is to find the element with both the right score and object. */
     x = x->level[0].forward;
-    if (x && score == x->score && zsl->mcmp(x->ele, ele) == 0) {
+    if (x && score == x->score && zsl->mcmp(x->ele, ele, size) == 0) {
         zslDeleteNode(zsl, x, update);
         if (!node)
             zslFreeNode(x);
@@ -228,7 +229,7 @@ int zslDelete(zskiplist *zsl, double score, void *ele, zskiplistNode **node) {
  * element, which is more costly.
  *
  * The function returns the updated element skiplist node pointer. */
-zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, void *ele, double newscore) {
+zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, void *ele, size_t size, double newscore) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     int i;
 
@@ -239,7 +240,7 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, void *ele, double
         while (x->level[i].forward &&
                 (x->level[i].forward->score < curscore ||
                     (x->level[i].forward->score == curscore &&
-                     zsl->mcmp(x->level[i].forward->ele, ele) < 0)))
+                     zsl->mcmp(x->level[i].forward->ele, ele, size) < 0)))
         {
             x = x->level[i].forward;
         }
@@ -249,7 +250,7 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, void *ele, double
     /* Jump to our element: note that this function assumes that the
      * element with the matching score exists. */
     x = x->level[0].forward;
-    assert(x && curscore == x->score && zsl->mcmp(x->ele, ele) == 0);
+    assert(x && curscore == x->score && zsl->mcmp(x->ele, ele, size) == 0);
 
     /* If the node, after the score update, would be still exactly
      * at the same position, we can just update the score without
@@ -264,7 +265,7 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, void *ele, double
     /* No way to reuse the old node: we need to remove and insert a new
      * one at a different place. */
     zslDeleteNode(zsl, x, update);
-    zskiplistNode *newnode = zslInsert(zsl, newscore, x->ele);
+    zskiplistNode *newnode = zslInsert(zsl, newscore, x->ele, size);
     /* We reused the old node x->ele SDS string, free the node now
      * since zslInsert created a new one. */
     x->ele = NULL;
@@ -461,7 +462,7 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
  * Returns 0 when the element cannot be found, rank otherwise.
  * Note that the rank is 1-based due to the span of zsl->header to the
  * first element. */
-unsigned long zslGetRank(zskiplist *zsl, double score, void *ele) {
+unsigned long zslGetRank(zskiplist *zsl, double score, void *ele, size_t size) {
     zskiplistNode *x;
     unsigned long rank = 0;
     int i;
@@ -471,15 +472,47 @@ unsigned long zslGetRank(zskiplist *zsl, double score, void *ele) {
         while (x->level[i].forward &&
             (x->level[i].forward->score < score ||
             (x->level[i].forward->score == score &&
-             zsl->mcmp(x->level[i].forward->ele, ele) <= 0))) {
+             zsl->mcmp(x->level[i].forward->ele, ele, size) <= 0))) {
             rank += x->level[i].span;
             x = x->level[i].forward;
         }
 
         /* x might be equal to zsl->header, so test if obj is non-NULL */
-        if (x->ele && x->score == score && zsl->mcmp(x->ele,ele) == 0) {
+        if (x->ele && x->score == score && zsl->mcmp(x->ele, ele, size) == 0) {
             return rank;
         }
     }
     return 0;
+}
+
+/* Returns a list iterator 'iter'. After the initialization every
+ * call to zslNext() will return the next element of the list.
+ *
+ * This function can't fail. */
+zskiplistIter *zslGetIterator(zskiplist *zsl, int direction) {
+    zskiplistIter *iter;
+
+    if ((iter = zmalloc(sizeof(*iter))) == NULL) return NULL;
+    if (direction == ZL_START_HEAD)
+        iter->next = zsl->header->level[0].forward;
+    else
+        iter->next = zsl->tail;
+    iter->direction = direction;
+    return iter;
+}
+
+zskiplistNode *zslNext(zskiplistIter *iter) {
+    zskiplistNode *current = iter->next;
+
+    if (current != NULL) {
+        if (iter->direction == ZL_START_HEAD)
+            iter->next = current->level[0].forward;
+        else
+            iter->next = current->backward;
+    }
+    return current;
+}
+
+void zslReleaseIterator(zskiplistIter *iter) {
+    zfree(iter);
 }
