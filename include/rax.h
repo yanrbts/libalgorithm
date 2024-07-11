@@ -185,5 +185,31 @@ typedef struct raxIterator {
 
 /* Exported API. */
 rax *raxNew(void);
+rax *raxNewWithMetadata(int metaSize);
+int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
+int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
+int raxRemove(rax *rax, unsigned char *s, size_t len, void **old);
+int raxFind(rax *rax, unsigned char *s, size_t len, void **value);
+void raxFree(rax *rax);
+void raxFreeWithCallback(rax *rax, void (*free_callback)(void*));
+void raxFreeWithCbAndContext(rax *rax,
+                             void (*free_callback)(void *item, void *ctx),
+                             void *ctx);
+void raxStart(raxIterator *it, rax *rt);
+int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len);
+int raxNext(raxIterator *it);
+int raxPrev(raxIterator *it);
+int raxRandomWalk(raxIterator *it, size_t steps);
+int raxCompare(raxIterator *iter, const char *op, unsigned char *key, size_t key_len);
+void raxStop(raxIterator *it);
+int raxEOF(raxIterator *it);
+void raxShow(rax *rax);
+uint64_t raxSize(rax *rax);
+unsigned long raxTouch(raxNode *n);
+void raxSetDebugMsg(int onoff);
+
+/* Internal API. May be used by the node callback in order to access rax nodes
+ * in a low level way, so this function is exported as well. */
+void raxSetData(raxNode *n, void *data);
 
 #endif
