@@ -26,6 +26,127 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+/*
+ * iskey : Indicates whether this node contains key
+ *      0: No key
+ *      1: Indicates that the path from the head to 
+ *         its parent node stores the key completely. 
+ *         When searching, press the child node iskey=1 
+ *         to determine whether the key exists.
+ * isnull: whether there is a stored value, for example, 
+ *         if metadata is stored, there is only a key but no value. 
+ *         The value is also stored in data
+ * iscompr: Whether there is prefix compression, which determines 
+ *          the data structure of data storage
+ * size: the number of characters stored in the node
+ * data: stores information about child nodes
+ * 
+ * Scenario 1: Insert only abcd
+ *      The leaf node pointed to by z-ptr iskey=1, and a compressed prefix is ​​used.
+ *      +-------+--------+---------+------+---+---+---+---+-------+------------+
+ *      | iskey | isnull | iscompr | size | a | b | c | d | z-ptr | value-data |
+ *      |   0   |   1    |    1    |   4  |   |   |   |   |       |            |
+ *      +-------+--------+---------+------+---+---+---+---+-------+------------+
+ *                                                            |
+ *                                                            V
+ *                                                          +-----+------+-------+----+----------+
+ *                                                          |iskey|isnull|iscompr|size|value-data|
+ *                                                          |  1  |   0  |   0   |  0 |          |
+ *                                                          +-----+------+-------+----+----------+
+ * 
+ * Scenario 2: Insert abcdef after abcd
+ *      Compare each compressed prefix character of the parent node of abcd, 
+ *      and after traversing all abcd nodes, point to its empty child node, j = 0, i < len(abcded).
+ *      Find the empty child node of abcd, and directly assign ef to the child node, 
+ *      which becomes the child node of abcd. The ef node is marked as iskey=1 
+ *      to identify the key abcd. Create another empty child node under the ef node, 
+ *      and iskey=1 to represent the key abcdef.
+ * 
+ *      +-------+--------+---------+------+---+---+---+---+-------+------------+
+ *      | iskey | isnull | iscompr | size | a | b | c | d | z-ptr | value-data |
+ *      |   0   |   1    |    1    |   4  |   |   |   |   |       |            |
+ *      +-------+--------+---------+------+---+---+---+---+-------+------------+
+ *                                                            |
+ *                              +-----------------------------+ 
+ *                              V                            
+ *                          +-----+------+-------+----+---+---+-------+----------+
+ *                          |iskey|isnull|iscompr|size| e | f | z-ptr |value-data|
+ *                          |  1  |   0  |   1   |  2 |   |   |       |          |
+ *                          +-----+------+-------+----+-------+-------+----------+
+ *                                                                |           
+ *                                                                V
+ *                                                              +-----+------+-------+----+-----------+
+ *                                                              |iskey|isnull|iscompr|size| value-data|
+ *                                                              |  1  |   0  |   0   |  0 |           |
+ *                                                              +-----+------+-------+----+-----------+
+ * 
+ * Scenario 3: Insert ab after abcd
+ *      ab can find the prefix of the first two digits in abcd, that is, i=len(ab), j < len(abcd).
+ *      Split abcd into two child nodes, ab and cd. cd is also a compressed prefix node. 
+ *      cd is also marked as iskey=1 to indicate the key ab.
+ *      An empty child node is hung under cd to mark the key abcd.
+ * 
+ *      +-------+--------+---------+------+---+---+-------+------------+
+ *      | iskey | isnull | iscompr | size | a | b | z-ptr | value-data |
+ *      |   0   |   1    |    1    |   2  |   |   |       |            |
+ *      +-------+--------+---------+------+---+---+-------+------------+
+ *                                                    |
+ *                             +----------------------+
+ *                             |
+ *                             V
+ *                          +-----+------+-------+----+---+---+-------+----------+
+ *                          |iskey|isnull|iscompr|size| c | d | z-ptr |value-data|
+ *                          |  1  |   0  |   1   |  2 |   |   |       |          |
+ *                          +-----+------+-------+----+-------+-------+----------+
+ *                                                                |
+ *                              +---------------------------------+
+ *                              |
+ *                              V
+ *                          +-----+------+-------+----+----------+
+ *                          |iskey|isnull|iscompr|size|value-data|
+ *                          |  1  |   0  |   0   |  0 |          |
+ *                          +-----+------+-------+----+----------+
+ * 
+ * 
+ * Scenario 4: Insert abABC after abcd
+ *      abcABC only finds the prefix ab in abcd, that is, i < len(abcABC), j < len(abcd). 
+ *      This step is a bit complicated, so let's break it down:
+ *
+ *      step 1: Split abcd after ab into three nodes: ab, c, and d.
+ *      step 2: Node c is a non-compressed node, and c is attached to the child node ab.
+ *      step 3: Node d has only one character, so it is also a non-compressed node, 
+ *              attached to the child node c.
+ *      step 4: Split ABC into A and BC, A is attached to the child node ab, 
+ *              and belongs to the same node as node c, so A and c belong to the same parent node ab.
+ *      step 5: Attach BC as a compressed prefix node to the child node A.
+ *      step 6: Both node d and node BC have an empty child node to identify 
+ *              the two keys abcd and abcABC respectively.
+ * 
+ *      +-------+--------+---------+------+---+---+-------+------------+
+ *      | iskey | isnull | iscompr | size | a | b | z-ptr | value-data |
+ *      |   0   |   1    |    1    |   2  |   |   |       |            |
+ *      +-------+--------+---------+------+---+---+-------+------------+
+ *                                                    |
+ *                  +---------------------------------+
+ *                  |
+ *                  V  
+ *              +-------+--------+---------+------+---+---+-------+-------+-----------+
+ *              | iskey | isnull | iscompr | size | c | A | c-ptr | A-ptr |value-data |
+ *              |   0   |   1    |    0    |   2  |   |   |       |       |           |
+ *              +-------+--------+---------+------+---+---+-------+-------+-----------+
+ *                                                            |       |
+ *                                                            V       V
+ *              +----------+------+--+-----+-------+------+-----+   +----+-------+-------+----+---+---+-------+-----------+
+ *              |value-data| d-ptr| d| size|iscompr|isnull|iskey|   |iskey|isnull|iscompr|size| B | C | z-ptr | value-data|
+ *              |          |      |  |  1  |   0   |   1  |  0  |   |  0  |   1  |   1   |  2 |   |   |       |           |
+ *              +----------+------+--+-----+-------+------+-----+   +-----+------+-------+----+---+---+-------+-----------+
+ *                             |                                                                           |
+ *                             V                                                                           V
+ *              +----------+------+-------+------+-----+                    +----+-------+-------+----+-----------+
+ *              |value-data|  size|iscompr|isnull|iskey|                    |iskey|isnull|iscompr|size| value-data|
+ *              |          |    0 |  0    |   0  |   1 |                    |1    |   0  |   0   |  0 |           |
+ *              +----------+------+-------+------+-----+                    +-----+------+-------+----+-----------+
+ */
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
