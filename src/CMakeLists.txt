@@ -15,6 +15,9 @@ set_target_properties(algorithm_static PROPERTIES VERSION ${VERSION})
 set_target_properties(algorithm_shared PROPERTIES OUTPUT_NAME "algorithm")
 set_target_properties(algorithm_static PROPERTIES OUTPUT_NAME "algorithm")
 
+target_link_libraries(algorithm_shared PRIVATE m)
+target_link_libraries(algorithm_static PRIVATE m)
+
 # 指定库的安装路径
 install(TARGETS algorithm_shared algorithm_static
         LIBRARY DESTINATION lib

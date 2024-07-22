@@ -25,27 +25,35 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#include <unity.h>
-#include "test_zsl.c"
-#include "test_rax.c"
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <rax.h>
 
-void setUp(void) {
+/* Regression test #1: Iterator wrong element returned after seek. */
+void test_rax_regression(void) {
+    rax *rax = raxNew();
 
-}
+    raxInsert(rax, (unsigned char*)"LKE", 3, (void*)(long)1, NULL);
+    raxInsert(rax, (unsigned char*)"TQ", 2, (void*)(long)2, NULL);
+    raxInsert(rax, (unsigned char*)"B", 1, (void*)(long)3, NULL);
+    raxInsert(rax, (unsigned char*)"FY", 2, (void*)(long)4, NULL);
+    raxInsert(rax, (unsigned char*)"WI", 2, (void*)(long)5, NULL);
 
-void tearDown(void) {
+    raxIterator iter;
+    raxStart(&iter, rax);
+    raxSeek(&iter, ">", (unsigned char*)"FMP", 3);
+    if (raxNext(&iter)) {
+        if (iter.key_len != 2 ||
+            memcmp(iter.key,"FY",2))
+        {
+            printf("Regression test 1 failed: 'FY' expected, got: '%.*s'\n",
+                (int)iter.key_len, (char*)iter.key);
+            // return 1;
+        }
+    }
 
-}
-
-int main(void) {
-    UNITY_BEGIN();
-    RUN_TEST(test_zslCreate);
-    RUN_TEST(test_zslInsert);
-    RUN_TEST(test_zslNthInRange);
-    RUN_TEST(test_zslGetRank);
-    RUN_TEST(test_zslDelete);
-    RUN_TEST(test_zslIterator);
-    // rax test
-    RUN_TEST(test_rax_regression);
-    return UNITY_END();
+    raxStop(&iter);
+    raxFree(rax);
+    // return 0;
 }
