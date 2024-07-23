@@ -146,6 +146,31 @@
  *              |value-data|  size|iscompr|isnull|iskey|                    |iskey|isnull|iscompr|size| value-data|
  *              |          |    0 |  0    |   0  |   1 |                    |1    |   0  |   0   |  0 |           |
  *              +----------+------+-------+------+-----+                    +-----+------+-------+----+-----------+
+ * 
+ * 
+ * Scenario 5: Insert Aabc after abcd
+ *      abcd and Aabc have no prefix match, i = 0, j = 0.
+ *      Split abcd into two nodes, a and bcd, where a is a non-compressed prefix node.
+ *      Split Aabc into two nodes, A and abc, where A is also a non-compressed prefix node.
+ *      Hang A on the same parent node as a.
+ *      As above, hang empty child nodes under the two nodes, bcd and abc, to represent the two keys respectively.
+ * 
+ *                +-------+--------+---------+------+---+---+-------+------+------------+
+ *                | iskey | isnull | iscompr | size | a | A | a-ptr | A-ptr| value-data |
+ *                |   0   |   1    |    0    |   2  |   |   |       |      |            |
+ *                +-------+--------+---------+------+---+---+-------+------+------------+
+ *                                                              |        |
+ *                                                              V        V
+ *      +------------+-------+---+---+---+----+-------+------+-----+    +-----+------+-------+----+---+---+---+-----+----------+
+ *      | value-date | z-ptr | d | c | b |size|iscompr|isnull|iskey|    |iskey|isnull|iscompr|size| a | b | c |z-ptr|value-date|
+ *      |            |       |   |   |   |  3 |  1    |   1  |  0  |    |  0  |   0  |   1   |  3 |   |   |   |     |          |
+ *      +------------+-------+---+---+---+----+-------+------+-----+    +------------+-------+----+---+---+---+-----+----------+
+ *                       |                                                                                      |
+ *                       V                                                                                      V
+ *              +----------+------+-------+------+-----+                    +----+-------+-------+----+-----------+
+ *              |value-data|  size|iscompr|isnull|iskey|                    |iskey|isnull|iscompr|size| value-data|
+ *              |          |    0 |  0    |   0  |   1 |                    |1    |   0  |   0   |  0 |           |
+ *              +----------+------+-------+------+-----+                    +-----+------+-------+----+-----------+
  */
 #include <stdlib.h>
 #include <string.h>
@@ -159,8 +184,6 @@
 #define rax_malloc  zmalloc
 #define rax_realloc zrealloc
 #define rax_free    zfree
-
-/* -------------------------------- Debugging ------------------------------ */
 
 /* -------------------------------- Debugging ------------------------------ */
 

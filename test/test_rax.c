@@ -57,3 +57,23 @@ void test_rax_regression(void) {
     raxFree(rax);
     // return 0;
 }
+
+/* Overwriting insert. Just a wrapper for raxGenericInsert() that will
+ * update the element if there is already one for the same key. 
+ * the associated data is updated (only if 'overwrite' is set to 1), and 0 is returned,
+ * otherwise the element is inserted and 1 is returned.*/
+void test_raxInsert(void) {
+    int ret = 0;
+    rax *rt = raxNew();
+    ret = raxInsert(rt,(unsigned char *)"a",1,(void *)100,NULL);
+    TEST_ASSERT_EQUAL_INT(1, ret);
+    ret = raxInsert(rt,(unsigned char *)"ab",2,(void *)101,NULL);
+    TEST_ASSERT_EQUAL_INT(1, ret);
+    ret = raxInsert(rt,(unsigned char *)"abc",3,(void *)NULL,NULL);
+    TEST_ASSERT_EQUAL_INT(1, ret);
+    ret = raxInsert(rt,(unsigned char *)"abcd",4,(void *)NULL,NULL);
+    TEST_ASSERT_EQUAL_INT(1, ret);
+    ret = raxInsert(rt,(unsigned char *)"abc",3,(void *)102,NULL);
+    TEST_ASSERT_EQUAL_INT(0, ret);
+    raxFree(rt);
+}

@@ -47,5 +47,6 @@ int main(void) {
     RUN_TEST(test_zslIterator);
     // rax test
     RUN_TEST(test_rax_regression);
+    RUN_TEST(test_raxInsert);
     return UNITY_END();
 }
