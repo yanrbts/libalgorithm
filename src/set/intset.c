@@ -177,3 +177,124 @@ static intset *intsetUpgradeAndAdd(intset *is, int64_t value) {
     is->length = intrev32ifbe(intrev32ifbe(is->length)+1);
     return is;
 }
+
+static void intsetMoveTail(intset *is, uint32_t from, uint32_t to) {
+    void *src, *dst;
+    uint32_t bytes = intrev32ifbe(is->length)-from;
+    uint32_t encoding = intrev32ifbe(is->encoding);
+
+    if (encoding == INTSET_ENC_INT64) {
+        src = (int64_t*)is->contents+from;
+        dst = (int64_t*)is->contents+to;
+        bytes *= sizeof(int64_t);
+    } else if (encoding == INTSET_ENC_INT32) {
+        src = (int32_t*)is->contents+from;
+        dst = (int32_t*)is->contents+to;
+        bytes *= sizeof(int32_t);
+    } else {
+        src = (int16_t*)is->contents+from;
+        dst = (int16_t*)is->contents+to;
+        bytes *= sizeof(int16_t);
+    }
+    memmove(dst, src, bytes);
+}
+
+/* Insert an integer in the intset */
+intset *intsetAdd(intset *is, int64_t value, uint8_t *success) {
+    uint8_t valenc = _intsetValueEncoding(value);
+    uint32_t pos;
+    if (success) *success = 1;
+
+    /* Upgrade encoding if necessary. If we need to upgrade, we know that
+     * this value should be either appended (if > 0) or prepended (if < 0),
+     * because it lies outside the range of existing values. */
+    if (valenc > intrev32ifbe(is->encoding)) {
+        /* This always succeeds, so we don't need to curry *success. */
+        return intsetUpgradeAndAdd(is,value);
+    } else {
+        /* Abort if the value is already present in the set.
+         * This call will populate "pos" with the right position to insert
+         * the value when it cannot be found. */
+        if (intsetSearch(is, value, &pos)) {
+            if (success) *success = 0;
+            return is;
+        }
+
+        is = intsetResize(is, intrev32ifbe(is->length)+1);
+        if (pos < intrev32ifbe(is->length)) intsetMoveTail(is,pos,pos+1);
+    }
+
+    _intsetSet(is, pos, value);
+    is->length = intrev32ifbe(intrev32ifbe(is->length)+1);
+    return is;
+}
+
+/* Delete integer from intset */
+intset *intsetRemove(intset *is, int64_t value, int *success) {
+    uint8_t valenc = _intsetValueEncoding(value);
+    uint32_t pos;
+    if (success) *success = 0;
+
+    if (valenc <= intrev32ifbe(is->encoding) && intsetSearch(is, value, &pos)) {
+        uint32_t len = intrev32ifbe(is->length);
+
+        /* We know we can delete */
+        if (success) *success = 1;
+
+        /* Overwrite value with tail and update length */
+        if (pos < (len-1)) intsetMoveTail(is, pos+1, pos);
+        is = intsetResize(is, len-1);
+        is->length = intrev32ifbe(len-1);
+    }
+    return is;
+}
+
+/* Determine whether a value belongs to this set */
+uint8_t intsetFind(intset *is, int64_t value) {
+    uint8_t valenc = _intsetValueEncoding(value);
+    return valenc <= intrev32ifbe(is->encoding) && intsetSearch(is, value, NULL);
+}
+
+/* Return random member */
+int64_t intsetRandom(intset *is) {
+    uint32_t len = intrev32ifbe(is->length);
+    assert(len); /* avoid division by zero on corrupt intset payload. */
+    return _intsetGet(is, rand()%len);
+}
+
+/* Return the largest member. */
+int64_t intsetMax(intset *is) {
+    uint32_t len = intrev32ifbe(is->length);
+    return _intsetGet(is, len-1);
+}
+
+/* Return the smallest member. */
+int64_t intsetMin(intset *is) {
+    return _intsetGet(is, 0);
+}
+
+/* Get the value at the given position. When this position is
+ * out of range the function returns 0, when in range it returns 1. */
+uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value) {
+    if (pos < intrev32ifbe(is->length)) {
+        *value = _intsetGet(is, pos);
+        return 1;
+    }
+    return 0;
+}
+
+/* Return intset length */
+uint32_t intsetLen(const intset *is) {
+    return intrev32ifbe(is->length);
+}
+
+/* Return intset blob size in bytes. */
+size_t intsetBlobLen(intset *is) {
+    return sizeof(intset)+(size_t)intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
+}
+
+/* Validate the integrity of the data structure.
+ * when `deep` is 0, only the integrity of the header is validated.
+ * when `deep` is 1, we make sure there are no duplicate or out of order records. */
+int intsetValidateIntegrity(const unsigned char *p, size_t size, int deep) {
+}
