@@ -28,6 +28,7 @@
 #include <unity.h>
 #include "test_zsl.c"
 #include "test_rax.c"
+#include "test_intset.c"
 
 void setUp(void) {
 
@@ -48,5 +49,7 @@ int main(void) {
     // rax test
     RUN_TEST(test_rax_regression);
     RUN_TEST(test_raxInsert);
+    // intset test
+    RUN_TEST(test_intset);
     return UNITY_END();
 }
