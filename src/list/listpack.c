@@ -331,3 +331,56 @@ unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
         return 5;
     }
 }
+
+/* Decode the backlen and returns it. If the encoding looks invalid (more than
+ * 5 bytes are used), UINT64_MAX is returned to report the problem. */
+uint64_t lpDecodeBacklen(unsigned char *p) {
+    uint64_t val = 0;
+    uint64_t shift = 0;
+    do {
+        val |= (uint64_t)(p[0] & 127) << shift;
+        if (!(p[0] & 128)) break;
+        shift += 7;
+        p--;
+        if (shift > 28) return UINT64_MAX;
+    } while(1);
+    return val;
+}
+
+/* Encode the string element pointed by 's' of size 'len' in the target
+ * buffer 's'. The function should be called with 'buf' having always enough
+ * space for encoding the string. This is done by calling lpEncodeGetType()
+ * before calling this function. */
+void lpEncodeString(unsigned char *buf, unsigned char *s, uint32_t len) {
+    if (len < 64) {
+        buf[0] = len | LP_ENCODING_6BIT_STR;
+        memcpy(buf+1, s, len);
+    } else if (len < 4096) {
+        buf[0] = (len >> 8) | LP_ENCODING_12BIT_STR;
+        buf[1] = len & 0xff;
+        memcpy(buf+2, s, len);
+    } else {
+        buf[0] = LP_ENCODING_32BIT_STR;
+        buf[1] = len & 0xff;
+        buf[2] = (len >> 8) & 0xff;
+        buf[3] = (len >> 16) & 0xff;
+        buf[4] = (len >> 24) & 0xff;
+        memcpy(buf+5, s, len);
+    }
+}
+
+/* Return the encoded length of the listpack element pointed by 'p'. If the
+ * element encoding is wrong then 0 is returned. */
+uint32_t lpCurrentEncodedSize(unsigned char *p) {
+    if (LP_ENCODING_IS_7BIT_UINT(p[0])) return 1;
+    if (LP_ENCODING_IS_6BIT_STR(p[0])) return 1+LP_ENCODING_6BIT_STR_LEN(p);
+    if (LP_ENCODING_IS_13BIT_INT(p[0])) return 2;
+    if (LP_ENCODING_IS_16BIT_INT(p[0])) return 3;
+    if (LP_ENCODING_IS_24BIT_INT(p[0])) return 4;
+    if (LP_ENCODING_IS_32BIT_INT(p[0])) return 5;
+    if (LP_ENCODING_IS_64BIT_INT(p[0])) return 9;
+    if (LP_ENCODING_IS_12BIT_STR(p[0])) return 2+LP_ENCODING_12BIT_STR_LEN(p);
+    if (LP_ENCODING_IS_32BIT_STR(p[0])) return 5+LP_ENCODING_32BIT_STR_LEN(p);
+    if (p[0] == LP_EOF) return 1;
+    return 0;
+}
