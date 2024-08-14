@@ -115,3 +115,219 @@
     (p)[4] = (v)&0xff; \
     (p)[5] = ((v)>>8)&0xff; \
 } while(0)
+
+/* Convert a string into a signed 64 bit integer.
+ * The function returns 1 if the string could be parsed into a (non-overflowing)
+ * signed 64 bit int, 0 otherwise. The 'value' will be set to the parsed value
+ * when the function returns success.
+ *
+ * Note that this function demands that the string strictly represents
+ * a int64 value: no spaces or other characters before or after the string
+ * representing the number are accepted, nor zeroes at the start if not
+ * for the string "0" representing the zero number.
+ *
+ * Because of its strictness, it is safe to use this function to check if
+ * you can convert a string into a long long, and obtain back the string
+ * from the number without any loss in the string representation. *
+ *
+ * -----------------------------------------------------------------------------
+ *
+ * Credits: this function was adapted from the Redis source code, file
+ * "utils.c", function string2ll(), and is copyright:
+ *
+ * Copyright(C) 2011, Pieter Noordhuis
+ * Copyright(C) 2011, Salvatore Sanfilippo
+ *
+ * The function is released under the BSD 3-clause license.
+ */
+int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
+    const char *p = s;
+    unsigned long plen = 0;
+    int negative = 0;
+    uint64_t v;
+
+    if (plen == slen)
+        return 0;
+    
+    /* Special case: first and only digit is 0. */
+    if (slen == 1 && p[0] == '0') {
+        if (value != NULL) *value = 0;
+        return 1;
+    }
+
+    if (p[0] == '-') {
+        negative = 1;
+        p++; plen++;
+
+        /* Abort on only a negative sign. */
+        if (plen == slen)
+            return 0;
+    }
+
+    /* First digit should be 1-9, otherwise the string should just be 0. */
+    if (p[0] >= '1' && p[0] <= '9') {
+        v = p[0]-'0';
+        p++; plen++;
+    } else if (p[0] == '0' && slen == 1) {
+        *value = 0;
+        return 1;
+    } else {
+        return 0;
+    }
+
+    while (plen < slen && p[0] >= '0' && p[0] <= '9') {
+        if (v > (UINT64_MAX / 10)) /* Overflow. */
+            return 0;
+        v *= 10;
+
+        if (v > (UINT64_MAX - (p[0]-'0'))) /* Overflow. */
+            return 0;
+        v += p[0]-'0';
+
+        p++; plen++;
+    }
+
+    /* Return if not all bytes were used. */
+    if (plen < slen)
+        return 0;
+    
+    if (negative) {
+        if (v > ((uint64_t)(-(INT64_MIN+1))+1)) /* Overflow. */
+            return 0;
+        if (value != NULL) *value = -v;
+    } else {
+        if (v > INT64_MAX) /* Overflow. */
+            return 0;
+        if (value != NULL) *value = v;
+    }
+    return 1;
+}
+
+/* Create a new, empty listpack.
+ * On success the new listpack is returned, otherwise an error is returned. */
+unsigned char *lpNew(void) {
+    unsigned char *lp = lp_malloc(LP_HDR_SIZE+1);
+    if (lp == NULL) return NULL;
+    lpSetTotalBytes(lp, LP_HDR_SIZE+1);
+    lpSetNumElements(lp, 0);
+    lp[LP_HDR_SIZE] = LP_EOF;
+    return lp;
+}
+
+/* Free the specified listpack. */
+void lpFree(unsigned char *lp) {
+    lp_free(lp);
+}
+
+/* Given an element 'ele' of size 'size', determine if the element can be
+ * represented inside the listpack encoded as integer, and returns
+ * LP_ENCODING_INT if so. Otherwise returns LP_ENCODING_STR if no integer
+ * encoding is possible.
+ *
+ * If the LP_ENCODING_INT is returned, the function stores the integer encoded
+ * representation of the element in the 'intenc' buffer.
+ *
+ * Regardless of the returned encoding, 'enclen' is populated by reference to
+ * the number of bytes that the string or integer encoded element will require
+ * in order to be represented. */
+int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, uint64_t *enclen) {
+    int64_t v;
+    if (lpStringToInt64((const char*)ele, size, &v)) {
+        if (v >= 0 && v <= 127) {
+            /* Single byte 0-127 integer. */
+            intenc[0] = v;
+            *enclen = 1;
+        } else if (v >= -4096 && v <= 4095) {
+            /* 13 bit integer. */
+            if (v < 0) v = ((int64_t)1<<13)+v;
+            intenc[0] = (v>>8)|LP_ENCODING_13BIT_INT;
+            intenc[1] = v&0xff;
+            *enclen = 2;
+        } else if (v >= -32768 && v <= 32767) {
+            /* 16 bit integer. */
+            if (v < 0) v = ((int64_t)1<<16)+v;
+            intenc[0] = LP_ENCODING_16BIT_INT;
+            intenc[1] = v&0xff;
+            intenc[2] = v>>8;
+            *enclen = 3;
+        } else if (v >= -8388608 && v <= 8388607) {
+            /* 24 bit integer. */
+            if (v < 0) v = ((int64_t)1<<24)+v;
+            intenc[0] = LP_ENCODING_24BIT_INT;
+            intenc[1] = v&0xff;
+            intenc[2] = (v>>8)&0xff;
+            intenc[3] = v>>16;
+            *enclen = 4;
+        } else if (v >= -2147483648 && v <= 2147483647) {
+            /* 32 bit integer. */
+            if (v < 0) v = ((int64_t)1<<32)+v;
+            intenc[0] = LP_ENCODING_32BIT_INT;
+            intenc[1] = v&0xff;
+            intenc[2] = (v>>8)&0xff;
+            intenc[3] = (v>>16)&0xff;
+            intenc[4] = v>>24;
+            *enclen = 5;
+        } else {
+            /* 64 bit integer. */
+            uint64_t uv = v;
+            intenc[0] = LP_ENCODING_64BIT_INT;
+            intenc[1] = uv&0xff;
+            intenc[2] = (uv>>8)&0xff;
+            intenc[3] = (uv>>16)&0xff;
+            intenc[4] = (uv>>24)&0xff;
+            intenc[5] = (uv>>32)&0xff;
+            intenc[6] = (uv>>40)&0xff;
+            intenc[7] = (uv>>48)&0xff;
+            intenc[8] = uv>>56;
+            *enclen = 9;
+        }
+        return LP_ENCODING_INT;
+    } else {
+        if (size < 64) *enclen = 1+size;
+        else if (size < 4096) *enclen = 2+size;
+        else *enclen = 5+size;
+        return LP_ENCODING_STRING;
+    }
+}
+
+/* Store a reverse-encoded variable length field, representing the length
+ * of the previous element of size 'l', in the target buffer 'buf'.
+ * The function returns the number of bytes used to encode it, from
+ * 1 to 5. If 'buf' is NULL the function just returns the number of bytes
+ * needed in order to encode the backlen. */
+unsigned long lpEncodeBacklen(unsigned char *buf, uint64_t l) {
+    if (l <= 127) {
+        if (buf) buf[0] = l;
+        return 1;
+    } else if (l < 16383) {
+        if (buf) {
+            buf[0] = l>>7;
+            buf[1] = (l&127)|128;
+        }
+        return 2;
+    } else if (l < 2097151) {
+        if (buf) {
+            buf[0] = l>>14;
+            buf[1] = ((l>>7)&127)|128;
+            buf[2] = (l&127)|128;
+        }
+        return 3;
+    } else if (l < 268435455) {
+        if (buf) {
+            buf[0] = l>>21;
+            buf[1] = ((l>>14)&127)|128;
+            buf[2] = ((l>>7)&127)|128;
+            buf[3] = (l&127)|128;
+        }
+        return 4;
+    } else {
+        if (buf) {
+            buf[0] = l>>28;
+            buf[1] = ((l>>21)&127)|128;
+            buf[2] = ((l>>14)&127)|128;
+            buf[3] = ((l>>7)&127)|128;
+            buf[4] = (l&127)|128;
+        }
+        return 5;
+    }
+}
