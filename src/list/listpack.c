@@ -384,3 +384,421 @@ uint32_t lpCurrentEncodedSize(unsigned char *p) {
     if (p[0] == LP_EOF) return 1;
     return 0;
 }
+
+/* Skip the current entry returning the next. It is invalid to call this
+ * function if the current element is the EOF element at the end of the
+ * listpack, however, while this function is used to implement lpNext(),
+ * it does not return NULL when the EOF element is encountered. */
+unsigned char *lpSkip(unsigned char *p) {
+    unsigned long entrylen = lpCurrentEncodedSize(p);
+    entrylen += lpEncodeBacklen(NULL, entrylen);
+    p += entrylen;
+    return p;
+}
+
+/* If 'p' points to an element of the listpack, calling lpNext() will return
+ * the pointer to the next element (the one on the right), or NULL if 'p'
+ * already pointed to the last element of the listpack. */
+unsigned char *lpNext(unsigned char *lp, unsigned char *p) {
+    ((void)lp); /* lp is not used for now. However lpPrev() uses it. */
+    p = lpSkip(p);
+    if (p[0] == LP_EOF) return NULL;
+    return p;
+}
+
+/* If 'p' points to an element of the listpack, calling lpPrev() will return
+ * the pointer to the preivous element (the one on the left), or NULL if 'p'
+ * already pointed to the first element of the listpack. */
+unsigned char *lpPrev(unsigned char *lp, unsigned char *p) {
+    if (p-lp == LP_HDR_SIZE) return NULL;
+    p--; /* Seek the first backlen byte of the last element. */
+    uint64_t prevlen = lpDecodeBacklen(p);
+    prevlen += lpEncodeBacklen(NULL, prevlen);
+    return p-prevlen+1; /* Seek the first byte of the previous entry. */
+}
+
+/* Return a pointer to the first element of the listpack, or NULL if the
+ * listpack has no elements. */
+unsigned char *lpFirst(unsigned char *lp) {
+    lp += LP_HDR_SIZE; /* Skip the header. */
+    if (lp[0] == LP_EOF) return NULL;
+    return lp;
+}
+
+/* Return a pointer to the last element of the listpack, or NULL if the
+ * listpack has no elements. */
+unsigned char *lpLast(unsigned char *lp) {
+    unsigned char *p = lp+lpGetTotalBytes(lp)-1; /* Seek EOF element. */
+    return lpPrev(lp,p); /* Will return NULL if EOF is the only element. */
+}
+
+/* Return the number of elements inside the listpack. This function attempts
+ * to use the cached value when within range, otherwise a full scan is
+ * needed. As a side effect of calling this function, the listpack header
+ * could be modified, because if the count is found to be already within
+ * the 'numele' header field range, the new value is set. */
+uint32_t lpLength(unsigned char *lp) {
+    uint32_t numele = lpGetNumElements(lp);
+    if (numele != LP_HDR_NUMELE_UNKNOWN) return numele;
+
+    /* Too many elements inside the listpack. We need to scan in order
+     * to get the total number. */
+    uint32_t count = 0;
+    unsigned char *p = lpFirst(lp);
+    while (p) {
+        count++;
+        p = lpNext(lp, p);
+    }
+
+    /* If the count is again within range of the header numele field,
+     * set it. */
+    if (count < LP_HDR_NUMELE_UNKNOWN) lpSetNumElements(lp,count);
+    return count;
+}
+
+/* Return the listpack element pointed by 'p'.
+ *
+ * The function changes behavior depending on the passed 'intbuf' value.
+ * Specifically, if 'intbuf' is NULL:
+ *
+ * If the element is internally encoded as an integer, the function returns
+ * NULL and populates the integer value by reference in 'count'. Otherwise if
+ * the element is encoded as a string a pointer to the string (pointing inside
+ * the listpack itself) is returned, and 'count' is set to the length of the
+ * string.
+ *
+ * If instead 'intbuf' points to a buffer passed by the caller, that must be
+ * at least LP_INTBUF_SIZE bytes, the function always returns the element as
+ * it was a string (returning the pointer to the string and setting the
+ * 'count' argument to the string length by reference). However if the element
+ * is encoded as an integer, the 'intbuf' buffer is used in order to store
+ * the string representation.
+ *
+ * The user should use one or the other form depending on what the value will
+ * be used for. If there is immediate usage for an integer value returned
+ * by the function, than to pass a buffer (and convert it back to a number)
+ * is of course useless.
+ *
+ * If the function is called against a badly encoded ziplist, so that there
+ * is no valid way to parse it, the function returns like if there was an
+ * integer encoded with value 12345678900000000 + <unrecognized byte>, this may
+ * be an hint to understand that something is wrong. To crash in this case is
+ * not sensible because of the different requirements of the application using
+ * this lib.
+ *
+ * Similarly, there is no error returned since the listpack normally can be
+ * assumed to be valid, so that would be a very high API cost. However a function
+ * in order to check the integrity of the listpack at load time is provided,
+ * check lpIsValid(). */
+unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf) {
+    int64_t val;
+    uint64_t uval, negstart, negmax;
+
+    if (LP_ENCODING_IS_7BIT_UINT(p[0])) {
+        negstart = UINT64_MAX; /* 7 bit ints are always positive. */
+        negmax = 0;
+        uval = p[0] & 0x7f;
+    } else if (LP_ENCODING_IS_6BIT_STR(p[0])) {
+        *count = LP_ENCODING_6BIT_STR_LEN(p);
+        return p+1;
+    } else if (LP_ENCODING_IS_13BIT_INT(p[0])) {
+        uval = ((p[0]&0x1f)<<8) | p[1];
+        negstart = (uint64_t)1<<12;
+        negmax = 8191;
+    } else if (LP_ENCODING_IS_16BIT_INT(p[0])) {
+        uval = (uint64_t)p[1] |
+               (uint64_t)p[2]<<8;
+        negstart = (uint64_t)1<<15;
+        negmax = UINT16_MAX;
+    } else if (LP_ENCODING_IS_24BIT_INT(p[0])) {
+        uval = (uint64_t)p[1] |
+               (uint64_t)p[2]<<8 |
+               (uint64_t)p[3]<<16;
+        negstart = (uint64_t)1<<23;
+        negmax = UINT32_MAX>>8;
+    } else if (LP_ENCODING_IS_32BIT_INT(p[0])) {
+        uval = (uint64_t)p[1] |
+               (uint64_t)p[2]<<8 |
+               (uint64_t)p[3]<<16 |
+               (uint64_t)p[4]<<24;
+        negstart = (uint64_t)1<<31;
+        negmax = UINT32_MAX;
+    } else if (LP_ENCODING_IS_64BIT_INT(p[0])) {
+        uval = (uint64_t)p[1] |
+               (uint64_t)p[2]<<8 |
+               (uint64_t)p[3]<<16 |
+               (uint64_t)p[4]<<24 |
+               (uint64_t)p[5]<<32 |
+               (uint64_t)p[6]<<40 |
+               (uint64_t)p[7]<<48 |
+               (uint64_t)p[8]<<56;
+        negstart = (uint64_t)1<<63;
+        negmax = UINT64_MAX;
+    } else if (LP_ENCODING_IS_12BIT_STR(p[0])) {
+        *count = LP_ENCODING_12BIT_STR_LEN(p);
+        return p+2;
+    } else if (LP_ENCODING_IS_32BIT_STR(p[0])) {
+        *count = LP_ENCODING_32BIT_STR_LEN(p);
+        return p+5;
+    } else {
+        uval = 12345678900000000ULL + p[0];
+        negstart = UINT64_MAX;
+        negmax = 0;
+    }
+
+    /* We reach this code path only for integer encodings.
+     * Convert the unsigned value to the signed one using two's complement
+     * rule. */
+    if (uval >= negstart) {
+        /* This three steps conversion should avoid undefined behaviors
+         * in the unsigned -> signed conversion. */
+        uval = negmax-uval;
+        val = uval;
+        val = -val-1;
+    } else {
+        val = uval;
+    }
+
+    /* Return the string representation of the integer or the value itself
+     * depending on intbuf being NULL or not. */
+    if (intbuf) {
+        *count = snprintf((char*)intbuf,LP_INTBUF_SIZE,"%lld",(long long)val);
+        return intbuf;
+    } else {
+        *count = val;
+        return NULL;
+    }
+}
+
+/* Insert, delete or replace the specified element 'ele' of length 'len' at
+ * the specified position 'p', with 'p' being a listpack element pointer
+ * obtained with lpFirst(), lpLast(), lpIndex(), lpNext(), lpPrev() or
+ * lpSeek().
+ *
+ * The element is inserted before, after, or replaces the element pointed
+ * by 'p' depending on the 'where' argument, that can be LP_BEFORE, LP_AFTER
+ * or LP_REPLACE.
+ *
+ * If 'ele' is set to NULL, the function removes the element pointed by 'p'
+ * instead of inserting one.
+ *
+ * Returns NULL on out of memory or when the listpack total length would exceed
+ * the max allowed size of 2^32-1, otherwise the new pointer to the listpack
+ * holding the new element is returned (and the old pointer passed is no longer
+ * considered valid)
+ *
+ * If 'newp' is not NULL, at the end of a successful call '*newp' will be set
+ * to the address of the element just added, so that it will be possible to
+ * continue an interation with lpNext() and lpPrev().
+ *
+ * For deletion operations ('ele' set to NULL) 'newp' is set to the next
+ * element, on the right of the deleted one, or to NULL if the deleted element
+ * was the last one. */
+unsigned char *lpInsert(unsigned char *lp, unsigned char *ele, uint32_t size, unsigned char *p, int where, unsigned char **newp) {
+    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+    unsigned char backlen[LP_MAX_BACKLEN_SIZE];
+
+    uint64_t enclen; /* The length of the encoded element. */
+
+    /* An element pointer set to NULL means deletion, which is conceptually
+     * replacing the element with a zero-length element. So whatever we
+     * get passed as 'where', set it to LP_REPLACE. */
+    if (ele == NULL) where = LP_REPLACE;
+
+    /* If we need to insert after the current element, we just jump to the
+     * next element (that could be the EOF one) and handle the case of
+     * inserting before. So the function will actually deal with just two
+     * cases: LP_BEFORE and LP_REPLACE. */
+    if (where == LP_AFTER) {
+        p = lpSkip(p);
+        where = LP_BEFORE;
+    }
+
+    /* Store the offset of the element 'p', so that we can obtain its
+     * address again after a reallocation. */
+    unsigned long poff = p-lp;
+
+    /* Calling lpEncodeGetType() results into the encoded version of the
+     * element to be stored into 'intenc' in case it is representable as
+     * an integer: in that case, the function returns LP_ENCODING_INT.
+     * Otherwise if LP_ENCODING_STR is returned, we'll have to call
+     * lpEncodeString() to actually write the encoded string on place later.
+     *
+     * Whatever the returned encoding is, 'enclen' is populated with the
+     * length of the encoded element. */
+    int enctype;
+    if (ele) {
+        enctype = lpEncodeGetType(ele,size,intenc,&enclen);
+    } else {
+        enctype = -1;
+        enclen = 0;
+    }
+
+    /* We need to also encode the backward-parsable length of the element
+     * and append it to the end: this allows to traverse the listpack from
+     * the end to the start. */
+    unsigned long backlen_size = ele ? lpEncodeBacklen(backlen,enclen) : 0;
+    uint64_t old_listpack_bytes = lpGetTotalBytes(lp);
+    uint32_t replaced_len  = 0;
+    if (where == LP_REPLACE) {
+        replaced_len = lpCurrentEncodedSize(p);
+        replaced_len += lpEncodeBacklen(NULL,replaced_len);
+    }
+
+    uint64_t new_listpack_bytes = old_listpack_bytes + enclen + backlen_size
+                                  - replaced_len;
+    if (new_listpack_bytes > UINT32_MAX) return NULL;
+
+    /* We now need to reallocate in order to make space or shrink the
+     * allocation (in case 'when' value is LP_REPLACE and the new element is
+     * smaller). However we do that before memmoving the memory to
+     * make room for the new element if the final allocation will get
+     * larger, or we do it after if the final allocation will get smaller. */
+
+    unsigned char *dst = lp + poff; /* May be updated after reallocation. */
+
+    /* Realloc before: we need more room. */
+    if (new_listpack_bytes > old_listpack_bytes) {
+        if ((lp = lp_realloc(lp, new_listpack_bytes)) == NULL) return NULL;
+        dst = lp + poff;
+    }
+
+    /* Setup the listpack relocating the elements to make the exact room
+     * we need to store the new one. */
+    if (where == LP_BEFORE) {
+        memmove(dst+enclen+backlen_size,dst,old_listpack_bytes-poff);
+    } else { /* LP_REPLACE. */
+        long lendiff = (enclen+backlen_size)-replaced_len;
+        memmove(dst+replaced_len+lendiff,
+                dst+replaced_len,
+                old_listpack_bytes-poff-replaced_len);
+    }
+
+    /* Realloc after: we need to free space. */
+    if (new_listpack_bytes < old_listpack_bytes) {
+        if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
+        dst = lp + poff;
+    }
+
+    /* Store the entry. */
+    if (newp) {
+        *newp = dst;
+        /* In case of deletion, set 'newp' to NULL if the next element is
+         * the EOF element. */
+        if (!ele && dst[0] == LP_EOF) *newp = NULL;
+    }
+    if (ele) {
+        if (enctype == LP_ENCODING_INT) {
+            memcpy(dst,intenc,enclen);
+        } else {
+            lpEncodeString(dst,ele,size);
+        }
+        dst += enclen;
+        memcpy(dst,backlen,backlen_size);
+        dst += backlen_size;
+    }
+
+    /* Update header. */
+    if (where != LP_REPLACE || ele == NULL) {
+        uint32_t num_elements = lpGetNumElements(lp);
+        if (num_elements != LP_HDR_NUMELE_UNKNOWN) {
+            if (ele)
+                lpSetNumElements(lp,num_elements+1);
+            else
+                lpSetNumElements(lp,num_elements-1);
+        }
+    }
+    lpSetTotalBytes(lp,new_listpack_bytes);
+
+#if 0
+    /* This code path is normally disabled: what it does is to force listpack
+     * to return *always* a new pointer after performing some modification to
+     * the listpack, even if the previous allocation was enough. This is useful
+     * in order to spot bugs in code using listpacks: by doing so we can find
+     * if the caller forgets to set the new pointer where the listpack reference
+     * is stored, after an update. */
+    unsigned char *oldlp = lp;
+    lp = lp_malloc(new_listpack_bytes);
+    memcpy(lp,oldlp,new_listpack_bytes);
+    if (newp) {
+        unsigned long offset = (*newp)-oldlp;
+        *newp = lp + offset;
+    }
+    /* Make sure the old allocation contains garbage. */
+    memset(oldlp,'A',new_listpack_bytes);
+    lp_free(oldlp);
+#endif
+
+    return lp;
+}
+
+/* Append the specified element 'ele' of length 'len' at the end of the
+ * listpack. It is implemented in terms of lpInsert(), so the return value is
+ * the same as lpInsert(). */
+unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
+    uint64_t listpack_bytes = lpGetTotalBytes(lp);
+    unsigned char *eofptr = lp + listpack_bytes - 1;
+    return lpInsert(lp,ele,size,eofptr,LP_BEFORE,NULL);
+}
+
+/* Remove the element pointed by 'p', and return the resulting listpack.
+ * If 'newp' is not NULL, the next element pointer (to the right of the
+ * deleted one) is returned by reference. If the deleted element was the
+ * last one, '*newp' is set to NULL. */
+unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp) {
+    return lpInsert(lp,NULL,0,p,LP_REPLACE,newp);
+}
+
+/* Return the total number of bytes the listpack is composed of. */
+uint32_t lpBytes(unsigned char *lp) {
+    return lpGetTotalBytes(lp);
+}
+
+/* Seek the specified element and returns the pointer to the seeked element.
+ * Positive indexes specify the zero-based element to seek from the head to
+ * the tail, negative indexes specify elements starting from the tail, where
+ * -1 means the last element, -2 the penultimate and so forth. If the index
+ * is out of range, NULL is returned. */
+unsigned char *lpSeek(unsigned char *lp, long index) {
+    int forward = 1; /* Seek forward by default. */
+
+    /* We want to seek from left to right or the other way around
+     * depending on the listpack length and the element position.
+     * However if the listpack length cannot be obtained in constant time,
+     * we always seek from left to right. */
+    uint32_t numele = lpGetNumElements(lp);
+    if (numele != LP_HDR_NUMELE_UNKNOWN) {
+        if (index < 0) index = (long)numele+index;
+        if (index < 0) return NULL; /* Index still < 0 means out of range. */
+        if (index >= numele) return NULL; /* Out of range the other side. */
+        /* We want to scan right-to-left if the element we are looking for
+         * is past the half of the listpack. */
+        if (index > numele/2) {
+            forward = 0;
+            /* Left to right scanning always expects a negative index. Convert
+             * our index to negative form. */
+            index -= numele;
+        }
+    } else {
+        /* If the listpack length is unspecified, for negative indexes we
+         * want to always scan left-to-right. */
+        if (index < 0) forward = 0;
+    }
+
+    /* Forward and backward scanning is trivially based on lpNext()/lpPrev(). */
+    if (forward) {
+        unsigned char *ele = lpFirst(lp);
+        while (index > 0 && ele) {
+            ele = lpNext(lp,ele);
+            index--;
+        }
+        return ele;
+    } else {
+        unsigned char *ele = lpLast(lp);
+        while (index < -1 && ele) {
+            ele = lpPrev(lp,ele);
+            index++;
+        }
+        return ele;
+    }
+}

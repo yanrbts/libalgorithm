@@ -29,6 +29,7 @@
 #include "test_zsl.c"
 #include "test_rax.c"
 #include "test_intset.c"
+#include "test_listpack.c"
 
 void setUp(void) {
 
@@ -51,5 +52,7 @@ int main(void) {
     RUN_TEST(test_raxInsert);
     // intset test
     RUN_TEST(test_intset);
+    // listpack test
+    RUN_TEST(test_listpack);
     return UNITY_END();
 }
