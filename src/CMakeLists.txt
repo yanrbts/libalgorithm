@@ -1,5 +1,5 @@
 # 查找所有的源文件
-file(GLOB_RECURSE SOURCE_FILES "list/*.c" "tree/*.c" "set/*.c" "zmalloc.c" "endianconv.c")
+file(GLOB_RECURSE SOURCE_FILES "list/*.c" "tree/*.c" "set/*.c" "heap/*.c" "zmalloc.c" "endianconv.c")
 
 # 生成共享库 libalgorithm.so
 add_library(algorithm_shared SHARED ${SOURCE_FILES})
