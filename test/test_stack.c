@@ -25,37 +25,29 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#include <unity.h>
-#include "test_zsl.c"
-#include "test_rax.c"
-#include "test_intset.c"
-#include "test_listpack.c"
-#include "test_stack.c"
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stack.h>
 
-void setUp(void) {
+void test_stack(void) {
+    stack s;
 
-}
+    stackInit(&s);
+    TEST_ASSERT_TRUE(stackPush(&s, (void*)"123"));
+    TEST_ASSERT_TRUE(stackPush(&s, (void*)"3434343434343"));
+    TEST_ASSERT_TRUE(stackPush(&s, (void*)"dfsdfsdfsdfsdffdfdfds"));
+    TEST_ASSERT_TRUE(stackPush(&s, (void*)"dfsdfsdf"));
+    TEST_ASSERT_TRUE(stackPush(&s, (void*)"hhhh dsfsdfdsf"));
+    TEST_ASSERT_TRUE(stackPush(&s, (void*)"dfsdfdn"));
+    TEST_ASSERT_TRUE(stackPush(&s, (void*)"ddkkkk"));
 
-void tearDown(void) {
+    TEST_ASSERT_EQUAL_INT(7, stackSize(&s));
+    TEST_ASSERT_EQUAL(0, strcmp("ddkkkk", stackPeek(&s)));
+    TEST_ASSERT_EQUAL_INT(7, stackSize(&s));
 
-}
-
-int main(void) {
-    UNITY_BEGIN();
-    RUN_TEST(test_zslCreate);
-    RUN_TEST(test_zslInsert);
-    RUN_TEST(test_zslNthInRange);
-    RUN_TEST(test_zslGetRank);
-    RUN_TEST(test_zslDelete);
-    RUN_TEST(test_zslIterator);
-    // rax test
-    RUN_TEST(test_rax_regression);
-    RUN_TEST(test_raxInsert);
-    // intset test
-    RUN_TEST(test_intset);
-    // listpack test
-    RUN_TEST(test_listpack);
-    // stack test
-    RUN_TEST(test_stack);
-    return UNITY_END();
+    stackPop(&s);
+    TEST_ASSERT_EQUAL(0, strcmp("dfsdfdn", stackPeek(&s)));
+    TEST_ASSERT_EQUAL_INT(6, stackSize(&s));
+    stackFree(&s);
 }

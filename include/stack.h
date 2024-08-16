@@ -27,5 +27,27 @@
  */
 #ifndef __STACK_H__
 #define __STACK_H__
+#include <stdint.h>
+#include <stddef.h>
+
+#define STACK_STATIC_ITEMS 32
+
+typedef struct stack {
+    void **stack;   /* Points to static_items or an heap allocated array. */
+    size_t items, maxitems; /* Number of items contained and total space. */
+    /* Up to STACK_STATIC_ITEMS items we avoid to allocate on the heap
+     * and use this static array of pointers instead. */
+    void *static_items[STACK_STATIC_ITEMS];
+    int oom; /* True if pushing into this stack failed for OOM at some point. */
+} stack;
+
+#define stackIsEmpty(ts) ((ts)->items == 0)
+
+void stackInit(stack *ts);
+int stackPush(stack *ts, void *obj);
+void *stackPop(stack *ts);
+size_t stackSize(stack *ts);
+void *stackPeek(stack *ts);
+void stackFree(stack *ts);
 
 #endif

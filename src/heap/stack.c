@@ -27,5 +27,73 @@
  */
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <zmalloc.h>
 #include <stack.h>
+
+#define st_malloc  zmalloc
+#define st_realloc zrealloc
+#define st_free    zfree
+
+/* Initialize the stack. */
+void stackInit(stack *ts) {
+    ts->stack = ts->static_items;
+    ts->items = 0;
+    ts->maxitems = STACK_STATIC_ITEMS;
+    ts->oom = 0;
+}
+
+/* If the number of inserted elements exceeds the maximum allowed, 
+ * the capacity needs to be doubled.
+ * Push an item into the stack, returns 1 on success, 0 on out of memory. */
+int stackPush(stack *ts, void *obj) {
+    if (ts->items == ts->maxitems) {
+        if (ts->stack == ts->static_items) {
+            ts->stack = st_malloc(sizeof(void*)*ts->maxitems*2);
+            if (ts->stack == NULL) {
+                ts->stack = ts->static_items;
+                ts->oom = 1;
+                errno = ENOMEM;
+                return 0;
+            }
+            memcpy(ts->stack, ts->static_items, sizeof(void*)*ts->maxitems);
+        } else {
+            void **newalloc = st_realloc(ts->stack, sizeof(void*)*ts->maxitems*2);
+            if (newalloc == NULL) {
+                ts->oom = 1;
+                errno = ENOMEM;
+                return 0;
+            }
+            ts->stack = newalloc;
+        }
+        ts->maxitems *= 2;
+    }
+    ts->stack[ts->items] = obj;
+    ts->items++;
+    return 1;
+}
+
+/* Pop an item from the stack, the function returns NULL if there are no
+ * items to pop. */
+void *stackPop(stack *ts) {
+    if (ts->items == 0) return NULL;
+    ts->items--;
+    return ts->stack[ts->items];
+}
+
+size_t stackSize(stack *ts) {
+    return ts->items;
+}
+
+/* Get the top element, but do not modify the number 
+ * of elements in the stack or delete the element from the stack.*/
+void *stackPeek(stack *ts) {
+    if (ts->items == 0) return NULL;
+    return ts->stack[ts->items-1];
+}
+
+/* Only the stack pointer is released, but the data is not released. 
+ * The data needs to be released according to the actual situation.*/
+void stackFree(stack *ts) {
+    if (ts->stack != ts->static_items) st_free(ts->stack);
+}
