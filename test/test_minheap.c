@@ -25,40 +25,56 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#include <unity.h>
-#include "test_zsl.c"
-#include "test_rax.c"
-#include "test_intset.c"
-#include "test_listpack.c"
-#include "test_stack.c"
-#include "test_minheap.c"
+#include <unistd.h>
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <limits.h>
+#include <minheap.h>
 
-void setUp(void) {
+void test_minheap(void) {
+    int count = 10000000; // 10M
+    heap *h = heapCreate(0, NULL);
 
-}
+    int *key = (int*)malloc(count*sizeof(int));
+    char *value = "The meaning of life.";
 
-void tearDown(void) {
+    unsigned int val = 42;
+    srand(val);
 
-}
+    int min = INT_MAX;
+    // Use a pseudo-random generator for the other keys
+    for (int i = 0; i < count; i++) {
+        *(key+i) = rand();
 
-int main(void) {
-    UNITY_BEGIN();
-    RUN_TEST(test_zslCreate);
-    RUN_TEST(test_zslInsert);
-    RUN_TEST(test_zslNthInRange);
-    RUN_TEST(test_zslGetRank);
-    RUN_TEST(test_zslDelete);
-    RUN_TEST(test_zslIterator);
-    // rax test
-    RUN_TEST(test_rax_regression);
-    RUN_TEST(test_raxInsert);
-    // intset test
-    RUN_TEST(test_intset);
-    // listpack test
-    // RUN_TEST(test_listpack);
-    // stack test
-    RUN_TEST(test_stack);
-    // minheap test
-    RUN_TEST(test_minheap);
-    return UNITY_END();
+        // Check for a new min
+        if (*(key+i) < min)
+            min = *(key+i);
+
+        // Insert into the heap
+        heapInsert(h, key+i, value);
+    }
+    TEST_ASSERT_EQUAL_INT(10000000, heapSize(h));
+    int *min_key;
+    char*min_val;
+    int *prev_key = &min;
+    int n = 10;
+    while (heapDelMin(h, (void**)&min_key, (void**)&min_val)) {
+        // Verify that the values are getting larger
+        if (n != 0) {
+            printf("%ld ", (long)*min_key);
+            n--;
+        } else {
+            printf("%ld \n", (long)*min_key);
+            n = 10;
+        }
+            
+        if (*prev_key > *min_key) {
+            printf("Previous key is greater than current key!\n");
+        }
+        prev_key = min_key;
+    }
+    TEST_ASSERT_EQUAL_INT(0, heapSize(h));
+    // Clean up the heap
+    heapDestroy(h);
 }
