@@ -713,3 +713,349 @@ sds sdstrim(sds s, const char *cset) {
     sdssetlen(s,len);
     return s;
 }
+
+/* Turn the string into a smaller (or equal) string containing only the
+ * substring specified by the 'start' and 'end' indexes.
+ *
+ * start and end can be negative, where -1 means the last character of the
+ * string, -2 the penultimate character, and so forth.
+ *
+ * The interval is inclusive, so the start and end characters will be part
+ * of the resulting string.
+ *
+ * The string is modified in-place.
+ *
+ * Example:
+ *
+ * s = sdsnew("Hello World");
+ * sdsrange(s,1,-1); => "ello World"
+ */
+void sdsrange(sds s, ssize_t start, ssize_t end) {
+    size_t newlen, len = sdslen(s);
+
+    if (len == 0) return;
+    if (start < 0) {
+        start = len+start;
+        if (start < 0) start = 0;
+    }
+    if (end < 0) {
+        end = len+end;
+        if (end < 0) end = 0;
+    }
+    newlen = (start > end) ? 0 : (end-start)+1;
+    if (newlen != 0) {
+        if (start >= (ssize_t)len) {
+            newlen = 0;
+        } else if (end >= (ssize_t)len) {
+            end = len-1;
+            newlen = (start > end) ? 0 : (end-start)+1;
+        }
+    } else {
+        start = 0;
+    }
+    if (start && newlen) memmove(s, s+start, newlen);
+    s[newlen] = 0;
+    sdssetlen(s,newlen);
+}
+
+/* Apply tolower() to every character of the sds string 's'. */
+void sdstolower(sds s) {
+    size_t len = sdslen(s), j;
+
+    for (j = 0; j < len; j++) s[j] = tolower(s[j]);
+}
+
+/* Apply toupper() to every character of the sds string 's'. */
+void sdstoupper(sds s) {
+    size_t len = sdslen(s), j;
+
+    for (j = 0; j < len; j++) s[j] = toupper(s[j]);
+}
+
+/* Compare two sds strings s1 and s2 with memcmp().
+ *
+ * Return value:
+ *
+ *     positive if s1 > s2.
+ *     negative if s1 < s2.
+ *     0 if s1 and s2 are exactly the same binary string.
+ *
+ * If two strings share exactly the same prefix, but one of the two has
+ * additional characters, the longer string is considered to be greater than
+ * the smaller one. */
+int sdscmp(const sds s1, const sds s2) {
+    size_t l1, l2, minlen;
+    int cmp;
+
+    l1 = sdslen(s1);
+    l2 = sdslen(s2);
+    minlen = (l1 < l2) ? l1 : l2;
+    cmp = memcmp(s1, s2, minlen);
+    if (cmp == 0) return l1>l2 ? 1 : (l1<l2? -1: 0);
+    return cmp;
+}
+
+/* Split 's' with separator in 'sep'. An array
+ * of sds strings is returned. *count will be set
+ * by reference to the number of tokens returned.
+ *
+ * On out of memory, zero length string, zero length
+ * separator, NULL is returned.
+ *
+ * Note that 'sep' is able to split a string using
+ * a multi-character separator. For example
+ * sdssplit("foo_-_bar","_-_"); will return two
+ * elements "foo" and "bar".
+ *
+ * This version of the function is binary-safe but
+ * requires length arguments. sdssplit() is just the
+ * same function but for zero-terminated strings.
+ */
+sds *sdssplitlen(const char *s, ssize_t len, const char *sep, int seplen, int *count) {
+    int elements = 0, slots = 5;
+    long start = 0, j;
+    sds *tokens;
+
+    if (seplen < 1 || len < 0) return NULL;
+
+    tokens = s_malloc(sizeof(sds)*slots);
+    if (tokens == NULL) return NULL;
+
+    if (len == 0) {
+        *count = 0;
+        return tokens;
+    }
+    for (j = 0; j < (len-(seplen-1)); j++) {
+        /* make sure there is room for the next element and the final one */
+        if (slots < elements+2) {
+            sds *newtokens;
+
+            slots *= 2;
+            newtokens = s_realloc(tokens, sizeof(sds)*slots);
+            if (newtokens == NULL) goto cleanup;
+            tokens = newtokens;
+        }
+        /* search the separator */
+        if ((seplen == 1 && *(s+j) == sep[0]) || (memcmp(s+j,sep,seplen) == 0)) {
+            tokens[elements] = sdsnewlen(s+start, j-start);
+            if (tokens[elements] == NULL) goto cleanup;
+            elements++;
+            start = j+seplen;
+            j = j+seplen-1; /* skip the separator */
+        }
+    }
+    /* Add the final element. We are sure there is room in the tokens array. */
+    tokens[elements] = sdsnewlen(s+start,len-start);
+    if (tokens[elements] == NULL) goto cleanup;
+    elements++;
+    *count = elements;
+    return tokens;
+
+cleanup:
+    {
+        int i;
+        for (i = 0; i < elements; i++) sdsfree(tokens[i]);
+        s_free(tokens);
+        *count = 0;
+        return NULL;
+    }
+}
+
+/* Free the result returned by sdssplitlen(), or do nothing if 'tokens' is NULL. */
+void sdsfreesplitres(sds *tokens, int count) {
+    if (!tokens) return;
+    while (count--)
+        sdsfree(tokens[count]);
+    s_free(tokens);
+}
+
+/* Append to the sds string "s" an escaped string representation where
+ * all the non-printable characters (tested with isprint()) are turned into
+ * escapes in the form "\n\r\a...." or "\x<hex-number>".
+ *
+ * After the call, the modified sds string is no longer valid and all the
+ * references must be substituted with the new pointer returned by the call. */
+sds sdscatrepr(sds s, const char *p, size_t len) {
+    s = sdscatlen(s, "\"", 1);
+    while (len--) {
+        switch (*p) {
+        case '\\':
+        case '"':
+            s = sdscatprintf(s, "\\%c", *p);
+            break;
+        case '\n': s = sdscatlen(s,"\\n",2); break;
+        case '\r': s = sdscatlen(s,"\\r",2); break;
+        case '\t': s = sdscatlen(s,"\\t",2); break;
+        case '\a': s = sdscatlen(s,"\\a",2); break;
+        case '\b': s = sdscatlen(s,"\\b",2); break;
+        default:
+            if (isprint(*p))
+                s = sdscatprintf(s,"%c",*p);
+            else
+                s = sdscatprintf(s,"\\x%02x",(unsigned char)*p);
+            break;
+        }
+        p++;
+    }
+    return sdscatlen(s,"\"",1);
+}
+
+/* Helper function for sdssplitargs() that returns non zero if 'c'
+ * is a valid hex digit. */
+int is_hex_digit(char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+           (c >= 'A' && c <= 'F');
+}
+
+/* Helper function for sdssplitargs() that converts a hex digit into an
+ * integer from 0 to 15 */
+int hex_digit_to_int(char c) {
+    switch(c) {
+    case '0': return 0;
+    case '1': return 1;
+    case '2': return 2;
+    case '3': return 3;
+    case '4': return 4;
+    case '5': return 5;
+    case '6': return 6;
+    case '7': return 7;
+    case '8': return 8;
+    case '9': return 9;
+    case 'a': case 'A': return 10;
+    case 'b': case 'B': return 11;
+    case 'c': case 'C': return 12;
+    case 'd': case 'D': return 13;
+    case 'e': case 'E': return 14;
+    case 'f': case 'F': return 15;
+    default: return 0;
+    }
+}
+
+/* Split a line into arguments, where every argument can be in the
+ * following programming-language REPL-alike form:
+ *
+ * foo bar "newline are supported\n" and "\xff\x00otherstuff"
+ *
+ * The number of arguments is stored into *argc, and an array
+ * of sds is returned.
+ *
+ * The caller should free the resulting array of sds strings with
+ * sdsfreesplitres().
+ *
+ * Note that sdscatrepr() is able to convert back a string into
+ * a quoted string in the same format sdssplitargs() is able to parse.
+ *
+ * The function returns the allocated tokens on success, even when the
+ * input string is empty, or NULL if the input contains unbalanced
+ * quotes or closed quotes followed by non space characters
+ * as in: "foo"bar or "foo'
+ */
+sds *sdssplitargs(const char *line, int *argc) {
+    const char *p = line;
+    char *current = NULL;
+    char **vector = NULL;
+
+    *argc = 0;
+    while (1) {
+        /* skip blanks */
+        while (*p && isspace(*p)) p++;
+        if (*p) {
+            /* get a token */
+            int inq=0;  /* set to 1 if we are in "quotes" */
+            int insq=0; /* set to 1 if we are in 'single quotes' */
+            int done=0;
+
+            if (current == NULL) current = sdsempty();
+            while (!done) {
+                if (inq) {
+                    if (*p == '\\' && *(p+1) == 'x' &&
+                                             is_hex_digit(*(p+2)) &&
+                                             is_hex_digit(*(p+3)))
+                    {
+                        unsigned char byte;
+
+                        byte = (hex_digit_to_int(*(p+2))*16)+
+                                hex_digit_to_int(*(p+3));
+                        current = sdscatlen(current,(char*)&byte,1);
+                        p += 3;
+                    } else if (*p == '\\' && *(p+1)) {
+                        char c;
+
+                        p++;
+                        switch(*p) {
+                        case 'n': c = '\n'; break;
+                        case 'r': c = '\r'; break;
+                        case 't': c = '\t'; break;
+                        case 'b': c = '\b'; break;
+                        case 'a': c = '\a'; break;
+                        default: c = *p; break;
+                        }
+                        current = sdscatlen(current,&c,1);
+                    } else if (*p == '"') {
+                        /* closing quote must be followed by a space or
+                         * nothing at all. */
+                        if (*(p+1) && !isspace(*(p+1))) goto err;
+                        done=1;
+                    } else if (!*p) {
+                        /* unterminated quotes */
+                        goto err;
+                    } else {
+                        current = sdscatlen(current,p,1);
+                    }
+                } else if (insq) {
+                    if (*p == '\\' && *(p+1) == '\'') {
+                        p++;
+                        current = sdscatlen(current,"'",1);
+                    } else if (*p == '\'') {
+                        /* closing quote must be followed by a space or
+                         * nothing at all. */
+                        if (*(p+1) && !isspace(*(p+1))) goto err;
+                        done=1;
+                    } else if (!*p) {
+                        /* unterminated quotes */
+                        goto err;
+                    } else {
+                        current = sdscatlen(current,p,1);
+                    }
+                } else {
+                    switch(*p) {
+                    case ' ':
+                    case '\n':
+                    case '\r':
+                    case '\t':
+                    case '\0':
+                        done=1;
+                        break;
+                    case '"':
+                        inq=1;
+                        break;
+                    case '\'':
+                        insq=1;
+                        break;
+                    default:
+                        current = sdscatlen(current,p,1);
+                        break;
+                    }
+                }
+                if (*p) p++;
+            }
+            /* add the token to the vector */
+            vector = s_realloc(vector,((*argc)+1)*sizeof(char*));
+            vector[*argc] = current;
+            (*argc)++;
+            current = NULL;
+        } else {
+            /* Even on empty input string return something not NULL. */
+            if (vector == NULL) vector = s_malloc(sizeof(void*));
+            return vector;
+        }
+    }
+
+err:
+    while((*argc)--)
+        sdsfree(vector[*argc]);
+    s_free(vector);
+    if (current) sdsfree(current);
+    *argc = 0;
+    return NULL;
+}
