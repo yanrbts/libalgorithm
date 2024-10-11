@@ -25,43 +25,39 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#include <unity.h>
-#include "test_zsl.c"
-#include "test_rax.c"
-#include "test_intset.c"
-#include "test_listpack.c"
-#include "test_stack.c"
-#include "test_minheap.c"
-#include "test_sds.c"
+#ifndef __UTIL_H__
+#define __UTIL_H__
 
-void setUp(void) {
+/**
+ * @param p Pattern string. Can contain normal characters and wildcard characters such as * and ?.
+ *        * matches any number of characters (including zero).
+ *        ? matches any single character.
+ * @param plen The length of the pattern string.
+ * @param s The target string is the string to be matched against the pattern.
+ * @param slen The length of the target string.
+ * @param nocase Whether to ignore case. If nocase is non-zero, character case is ignored when matching.
+ * @return Returns 1 if a match is successful, otherwise returns 0
+*/
+int stringmatchlen(const char *p, int plen, const char *s, int slen, int nocase);
 
-}
+/**
+ * Convert a string representing an amount of memory into the number of
+ * bytes, so for instance memtoll("1Gb") will return 1073741824 that is
+ * (1024*1024*1024).
+ * @param p a string representing an amount of memory eg "1Gb"
+ * @param err On parsing error, if *err is not NULL, it's set to 1, otherwise it's set to 0
+ * @return On error the function return value is 0 otherwise returns bytes number
+*/
+long long memtoll(const char *p, int *err);
 
-void tearDown(void) {
+/**
+ * @return the UNIX time in microseconds
+ */
+long long ustime(void);
 
-}
+/**
+ * @return the UNIX time in milliseconds
+ */
+long long mstime(void);
 
-int main(void) {
-    UNITY_BEGIN();
-    RUN_TEST(test_zslCreate);
-    RUN_TEST(test_zslInsert);
-    RUN_TEST(test_zslNthInRange);
-    RUN_TEST(test_zslGetRank);
-    RUN_TEST(test_zslDelete);
-    RUN_TEST(test_zslIterator);
-    // rax test
-    RUN_TEST(test_rax_regression);
-    RUN_TEST(test_raxInsert);
-    // intset test
-    RUN_TEST(test_intset);
-    // listpack test
-    // RUN_TEST(test_listpack);
-    // stack test
-    RUN_TEST(test_stack);
-    // minheap test
-    // RUN_TEST(test_minheap);
-    // sds test
-    RUN_TEST(test_sds);
-    return UNITY_END();
-}
+#endif

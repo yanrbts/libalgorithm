@@ -1,10 +1,12 @@
 # 查找所有的源文件
 file(GLOB_RECURSE SOURCE_FILES 
+        "hash/*c"
         "list/*.c" 
         "tree/*.c" 
         "set/*.c" 
         "heap/*.c" 
         "string/*.c"
+        "other/*.c"
         "zmalloc.c" 
         "endianconv.c")
 
