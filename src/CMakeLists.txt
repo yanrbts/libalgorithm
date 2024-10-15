@@ -7,7 +7,8 @@ file(GLOB_RECURSE SOURCE_FILES
         "heap/*.c" 
         "string/*.c"
         "other/*.c"
-        "zmalloc.c" 
+        "zmalloc.c"
+        "siphash.c" 
         "endianconv.c")
 
 # 生成共享库 libalgorithm.so
