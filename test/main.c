@@ -33,6 +33,7 @@
 #include "test_stack.c"
 #include "test_minheap.c"
 #include "test_sds.c"
+#include "test_avltree.c"
 
 void setUp(void) {
 
@@ -62,6 +63,7 @@ int main(void) {
     // minheap test
     // RUN_TEST(test_minheap);
     // sds test
-    RUN_TEST(test_sds);
+    // RUN_TEST(test_sds);
+    RUN_TEST(test_avltree);
     return UNITY_END();
 }
