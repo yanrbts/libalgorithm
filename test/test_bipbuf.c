@@ -25,47 +25,41 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#include <unity.h>
-#include "test_zsl.c"
-#include "test_rax.c"
-#include "test_intset.c"
-#include "test_listpack.c"
-#include "test_stack.c"
-#include "test_minheap.c"
-#include "test_sds.c"
-#include "test_avltree.c"
-#include "test_bipbuf.c"
+#include <assert.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <bipbuffer.h>
 
-void setUp(void) {
+void test_bipbuffer(void) {
+    void *me;
 
-}
+    me = bipBufNew(16);
+    TEST_ASSERT_EQUAL_INT(16, bipBufSize(me));
+    TEST_ASSERT_TRUE(bipBufIsEmpty(me));
 
-void tearDown(void) {
+    bipBufOffer(me, (unsigned char*)strdup("abcd"), 4);
+    TEST_ASSERT_FALSE(bipBufIsEmpty(me));
+    unsigned char *p = bipBufPoll(me, 4);
+    TEST_ASSERT(strncmp(p, "abcd", 4) == 0);
+    TEST_ASSERT_TRUE(bipBufIsEmpty(me));
 
-}
+    bipBufOffer(me, (unsigned char*)strdup("abcd"), 4);
+    TEST_ASSERT(bipBufUsed(me) == 4);
+    TEST_ASSERT(bipBufUnused(me) == 12);
 
-int main(void) {
-    UNITY_BEGIN();
-    RUN_TEST(test_zslCreate);
-    RUN_TEST(test_zslInsert);
-    RUN_TEST(test_zslNthInRange);
-    RUN_TEST(test_zslGetRank);
-    RUN_TEST(test_zslDelete);
-    RUN_TEST(test_zslIterator);
-    // rax test
-    RUN_TEST(test_rax_regression);
-    RUN_TEST(test_raxInsert);
-    // intset test
-    RUN_TEST(test_intset);
-    // listpack test
-    // RUN_TEST(test_listpack);
-    // stack test
-    RUN_TEST(test_stack);
-    // minheap test
-    // RUN_TEST(test_minheap);
-    // sds test
-    // RUN_TEST(test_sds);
-    RUN_TEST(test_avltree);
-    RUN_TEST(test_bipbuffer);
-    return UNITY_END();
+    bipBufFree(me);
+    me = bipBufNew(0);
+    TEST_ASSERT(0 == bipBufOffer(me, (unsigned char*)strdup("1000"), 4));
+    bipBufFree(me);
+
+    me = bipBufNew(6);
+    bipBufOffer(me, (unsigned char*)"abcdef", 6);
+    bipBufPoll(me, 4);
+    bipBufOffer(me, (unsigned char*)"1234", 4);
+
+    p = bipBufPoll(me, 2);
+    TEST_ASSERT(strncmp(p, "ef", 2) == 0);
+    p = bipBufPoll(me, 4);
+    TEST_ASSERT(strncmp(p, "1234", 4) == 0);
 }
