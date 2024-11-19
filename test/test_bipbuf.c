@@ -62,4 +62,27 @@ void test_bipbuffer(void) {
     TEST_ASSERT(strncmp(p, "ef", 2) == 0);
     p = bipBufPoll(me, 4);
     TEST_ASSERT(strncmp(p, "1234", 4) == 0);
+    bipBufFree(me);
+
+    me = bipBufNew(6);
+    bipBufOffer(me, (unsigned char*)"abcd", 4);
+    bipBufOffer(me, (unsigned char*)"abcd", 4);
+    p = bipBufPoll(me, 2);
+    TEST_ASSERT(strncmp(p, "ab", 2) == 0);
+    bipBufOffer(me, (unsigned char*)"abcd", 4);
+    TEST_ASSERT_TRUE(NULL == bipBufPoll(me, 6));
+    bipBufFree(me);
+
+    me = bipBufNew(16);
+    bipBufOffer(me, (unsigned char*)"abcd", 4);
+    bipBufOffer(me, (unsigned char*)"efgh", 4);
+    TEST_ASSERT_EQUAL_INT(8, bipBufUsed(me));
+    TEST_ASSERT_EQUAL_INT(8, bipBufUnused(me));
+    TEST_ASSERT_TRUE(0 == strncmp("abcd", bipBufPeek(me, 4), 4));
+    TEST_ASSERT_TRUE(0 == strncmp("abcdefgh", bipBufPeek(me, 8), 8));
+    bipBufPoll(me, 4);
+    TEST_ASSERT_TRUE(0 == strncmp("efgh", bipBufPeek(me, 4), 4));
+    TEST_ASSERT_EQUAL_INT(8, bipBufUnused(me));
+    bipBufPoll(me, 4);
+    TEST_ASSERT_EQUAL_INT(16, bipBufUnused(me));
 }
