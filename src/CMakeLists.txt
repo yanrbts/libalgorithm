@@ -6,6 +6,7 @@ file(GLOB_RECURSE SOURCE_FILES
         "set/*.c" 
         "heap/*.c" 
         "string/*.c"
+        "pool/*.c"
         "other/*.c"
         "zmalloc.c"
         "siphash.c" 

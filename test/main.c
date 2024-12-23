@@ -35,6 +35,7 @@
 #include "test_sds.c"
 #include "test_avltree.c"
 #include "test_bipbuf.c"
+#include "test_mempool.c"
 
 void setUp(void) {
 
@@ -67,5 +68,6 @@ int main(void) {
     // RUN_TEST(test_sds);
     RUN_TEST(test_avltree);
     RUN_TEST(test_bipbuffer);
+    RUN_TEST(test_mempool);
     return UNITY_END();
 }
