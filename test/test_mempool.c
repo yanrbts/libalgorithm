@@ -121,4 +121,9 @@ void test_mempool(void) {
     }
     TEST_ASSERT_EQUAL(10000, array_num(a));
     TEST_ASSERT_EQUAL(16000, array_total(a));
+
+    mem_reset_pool(p);
+    TEST_ASSERT_EQUAL(16000, array_total(a));
+
+    mem_destroy_pool(p);
 }
