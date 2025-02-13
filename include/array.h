@@ -25,52 +25,60 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#include <unity.h>
-#include "test_zsl.c"
-#include "test_rax.c"
-#include "test_intset.c"
-#include "test_listpack.c"
-#include "test_stack.c"
-#include "test_minheap.c"
-#include "test_sds.c"
-#include "test_avltree.c"
-#include "test_bipbuf.c"
-#include "test_mempool.c"
-#include "test_array.c"
+#ifndef __ARRAY_H__
+#define __ARRAY_H__
 
-void setUp(void) {
+#include <stdint.h>
+#include <stdlib.h>
 
+typedef int (*array_compare_t)(const void *, const void *);
+typedef int (*array_each_t)(void *, void *);
+
+struct array {
+    uint32_t nelem;  /* # element */
+    void     *elem;  /* element */
+    size_t   size;   /* element size */
+    uint32_t nalloc; /* # allocated element */ 
+};
+
+#define null_array { 0, NULL, 0, 0 }
+
+static inline void
+array_null(struct array *a)
+{
+    a->nelem = 0;
+    a->elem = NULL;
+    a->size = 0;
+    a->nalloc = 0;
 }
 
-void tearDown(void) {
-
+static inline void
+array_set(struct array *a, void *elem, size_t size, uint32_t nalloc)
+{
+    a->nelem = 0;
+    a->elem = elem;
+    a->size = size;
+    a->nalloc = nalloc;
 }
 
-int main(void) {
-    UNITY_BEGIN();
-    RUN_TEST(test_zslCreate);
-    RUN_TEST(test_zslInsert);
-    RUN_TEST(test_zslNthInRange);
-    RUN_TEST(test_zslGetRank);
-    RUN_TEST(test_zslDelete);
-    RUN_TEST(test_zslIterator);
-    // rax test
-    RUN_TEST(test_rax_regression);
-    RUN_TEST(test_raxInsert);
-    // intset test
-    RUN_TEST(test_intset);
-    // listpack test
-    // RUN_TEST(test_listpack);
-    // stack test
-    RUN_TEST(test_stack);
-    // minheap test
-    // RUN_TEST(test_minheap);
-    // sds test
-    // RUN_TEST(test_sds);
-    RUN_TEST(test_avltree);
-    RUN_TEST(test_bipbuffer);
-    RUN_TEST(test_mempool);
-    RUN_TEST(test_arrayfunc);
-
-    return UNITY_END();
+static inline uint32_t
+array_n(const struct array *a)
+{
+    return a->nelem;
 }
+
+struct array *array_create(uint32_t n, size_t size);
+void array_destroy(struct array *a);
+int array_init(struct array *a, uint32_t n, size_t size);
+void array_deinit(struct array *a);
+
+uint32_t array_idx(const struct array *a, const void *elem);
+void *array_push(struct array *a);
+void *array_pop(struct array *a);
+void *array_get(const struct array *a, uint32_t idx);
+void *array_top(const struct array *a);
+void array_swap(struct array *a, struct array *b);
+void array_sort(struct array *a, array_compare_t compare);
+int array_each(const struct array *a, array_each_t func, void *data);
+
+#endif

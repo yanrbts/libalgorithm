@@ -43,7 +43,7 @@ typedef struct {
 #define array_num(a) ((a)->nelts)
 #define array_total(a) ((a)->nalloc)
 
-array_t *array_create(mem_pool_t *p, uintptr_t n, size_t size) {
+array_t *marray_create(mem_pool_t *p, uintptr_t n, size_t size) {
     array_t *a;
 
     a = mem_palloc(p, sizeof(array_t));
@@ -60,7 +60,7 @@ array_t *array_create(mem_pool_t *p, uintptr_t n, size_t size) {
 }
 
 void *
-array_push(array_t *a) {
+marray_push(array_t *a) {
     void        *elt, *new;
     size_t       size;
     mem_pool_t  *p;
@@ -110,11 +110,11 @@ void test_mempool(void) {
     p = mem_create_pool(1024);
     TEST_ASSERT_TRUE(NULL != p);
 
-    a = array_create(p, 1000, sizeof(int));
+    a = marray_create(p, 1000, sizeof(int));
     TEST_ASSERT_TRUE(NULL != a);
 
     for (tmp = 0; tmp < 10000; tmp++) {
-        int *i = array_push(a);
+        int *i = marray_push(a);
         TEST_ASSERT_TRUE(NULL != i);
         printf("push %d: %p\n", tmp, (void*)i);
         *i = tmp;

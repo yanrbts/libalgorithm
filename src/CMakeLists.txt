@@ -8,6 +8,7 @@ file(GLOB_RECURSE SOURCE_FILES
         "string/*.c"
         "pool/*.c"
         "other/*.c"
+        "array/*.c"
         "zmalloc.c"
         "siphash.c" 
         "endianconv.c")
