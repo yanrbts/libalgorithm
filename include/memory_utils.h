@@ -34,6 +34,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <compiler.h>
 
 /* The maximum value of the kernel error code is defined as 4095, 
  * that is, negative values ​​from -1 to -4095 are encoded as error pointers.*/
