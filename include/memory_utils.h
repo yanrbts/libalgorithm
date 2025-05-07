@@ -97,4 +97,18 @@ static inline void free_disarm_function(void *ptr) {
 }
 #define __do_free call_cleaner(free_disarm)
 
+#define move_ptr(ptr)                           \
+	({                                       	\
+		typeof(ptr) __internal_ptr__ = (ptr); 	\
+		(ptr) = NULL;                         	\
+		__internal_ptr__;                     	\
+	})
+
+#define move_fd(fd)                         	\
+	({                                  		\
+		int __internal_fd__ = (fd); 			\
+		(fd) = -EBADF;              			\
+		__internal_fd__;            			\
+	})
+
 #endif
