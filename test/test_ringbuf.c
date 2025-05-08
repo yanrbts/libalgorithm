@@ -48,6 +48,7 @@ void test_ringbuf(void) {
     TEST_ASSERT_EQUAL_INT(ret, 0);
 
     memset(tmp, 0, sizeof(tmp));
+    len = 600;
     ret = ringbuf_read(&buf, tmp, &len);
     TEST_ASSERT_EQUAL_INT(ret, 0);
     fprintf(stderr, "read data: %s\n", tmp);
