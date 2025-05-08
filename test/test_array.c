@@ -53,5 +53,6 @@ void test_arrayfunc(void)
     TEST_ASSERT_EQUAL_INT(10000-2, *((int*)array_pop(a)));
     TEST_ASSERT_EQUAL_INT(10000-3, *((int*)array_pop(a)));
 
-    array_destroy(a);
+    if (array_n(a) == 0)
+        array_destroy(a);
 }

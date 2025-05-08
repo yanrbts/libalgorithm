@@ -72,4 +72,19 @@
 #define _unused
 #endif
 
+#ifndef __noreturn
+#	if __STDC_VERSION__ >= 201112L
+#		define __noreturn _Noreturn
+#	else
+#		define __noreturn __attribute__((noreturn))
+#	endif
+#endif
+
+/* Used to tell the compiler "this function is likely 
+ * to be called frequently". This allows the compiler 
+ * to optimize */
+#ifndef __hot
+#define __hot __attribute__((hot))
+#endif
+
 #endif

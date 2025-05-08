@@ -112,8 +112,10 @@ int ringbuf_create(struct ringbuf *buf, size_t size) {
     buf->r_off = 0;
 
     /* verify that we are at least given the multiple of a page size */
-    if (buf->size % _getpagesize())
+    if (buf->size % _getpagesize()){
+        fprintf(stderr, "ringbuf: size must be a multiple of the page size(%lu)\n", _getpagesize());
         return -EINVAL;
+    }
     
     buf->addr = mmap(NULL, buf->size * 2, PROT_NONE,
 			MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
